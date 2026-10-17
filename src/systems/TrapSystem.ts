@@ -1,54 +1,79 @@
-/**
- * Timing for the spike trap. Pure logic: the renderer reads `height` to draw
- * the spikes, and the stage logic reads `lethal` to decide whether stepping
- * on the trap hurts.
- *
- * One cycle (3.6 s):
- *   hidden 1.8 s → warning 0.5 s (tips peek out, harmless)
- *   → rise 0.1 s → up 0.9 s → retract 0.3 s
- */
-const HIDDEN_END = 1.8;
-const WARNING_END = 2.3;
-const RISE_END = 2.4;
-const UP_END = 3.3;
-const CYCLE = 3.6;
+import type { TrapPhase, TrapTiming } from "@/types/game";
+import type { TrapState } from "@/types/state";
 
-/** Spike offset from the floor: 0 = fully up, HIDDEN_HEIGHT = out of sight. */
+/** Spike offset from the floor while hidden: far enough down to be out of sight. */
 export const HIDDEN_HEIGHT = -0.7;
 const WARNING_HEIGHT = -0.45;
-/** While retracting, spikes stop hurting once they sink below this. */
+/** Spikes hurt only while above this height (late in rising, armed, early in retracting). */
 const LETHAL_HEIGHT = -0.25;
+
+const PHASE_ORDER: readonly TrapPhase[] = ["hidden", "warning", "rising", "armed", "retracting"];
 
 function lerp(from: number, to: number, t: number) {
   return from + (to - from) * t;
 }
 
-export class TrapSystem {
-  private time = 0;
-  /** Current spike offset from the floor (≤ 0). */
-  height = HIDDEN_HEIGHT;
-  /** True while the spikes are up far enough to hurt. */
-  lethal = false;
-  /** True during the harmless "about to fire" phase, for a shake effect. */
-  warning = false;
+export function cycleLength(timing: TrapTiming) {
+  return PHASE_ORDER.reduce((total, phase) => total + timing[phase], 0);
+}
 
-  update(delta: number) {
-    this.time = (this.time + delta) % CYCLE;
-    const t = this.time;
-
-    if (t < HIDDEN_END) {
-      this.height = HIDDEN_HEIGHT;
-    } else if (t < WARNING_END) {
-      this.height = WARNING_HEIGHT;
-    } else if (t < RISE_END) {
-      this.height = lerp(WARNING_HEIGHT, 0, (t - WARNING_END) / (RISE_END - WARNING_END));
-    } else if (t < UP_END) {
-      this.height = 0;
-    } else {
-      this.height = lerp(0, HIDDEN_HEIGHT, (t - UP_END) / (CYCLE - UP_END));
+/** Which phase a point in the cycle falls in, and how far through that phase (0..1). */
+export function phaseAt(timing: TrapTiming, cycleTime: number): { phase: TrapPhase; progress: number } {
+  let start = 0;
+  for (const phase of PHASE_ORDER) {
+    const duration = timing[phase];
+    if (cycleTime < start + duration) {
+      return { phase, progress: (cycleTime - start) / duration };
     }
+    start += duration;
+  }
+  return { phase: "hidden", progress: 0 };
+}
 
-    this.warning = t >= HIDDEN_END && t < WARNING_END;
-    this.lethal = t >= WARNING_END && this.height > LETHAL_HEIGHT;
+function heightFor(phase: TrapPhase, progress: number): number {
+  switch (phase) {
+    case "hidden":
+      return HIDDEN_HEIGHT;
+    case "warning":
+      return WARNING_HEIGHT;
+    case "rising":
+      return lerp(WARNING_HEIGHT, 0, progress);
+    case "armed":
+      return 0;
+    case "retracting":
+      return lerp(0, HIDDEN_HEIGHT, progress);
+  }
+}
+
+/**
+ * One timed spike trap. StageManager advances it every frame and the renderer
+ * reads it every frame. Mutable on purpose: it changes 60 times a second and
+ * must not go through React.
+ */
+export class TrapSystem implements TrapState {
+  private time: number;
+  phase: TrapPhase = "hidden";
+  height = HIDDEN_HEIGHT;
+  lethal = false;
+
+  constructor(
+    private readonly timing: TrapTiming,
+    startOffset = 0,
+  ) {
+    this.time = startOffset % cycleLength(timing);
+    this.apply();
+  }
+
+  update(dt: number) {
+    this.time = (this.time + dt) % cycleLength(this.timing);
+    this.apply();
+  }
+
+  private apply() {
+    const { phase, progress } = phaseAt(this.timing, this.time);
+    this.phase = phase;
+    this.height = heightFor(phase, progress);
+    const spikesOut = phase === "rising" || phase === "armed" || phase === "retracting";
+    this.lethal = spikesOut && this.height > LETHAL_HEIGHT;
   }
 }

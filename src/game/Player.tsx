@@ -1,10 +1,10 @@
 import { useRef } from "react";
 import type { Group, Mesh, MeshBasicMaterial } from "three";
 
+import { PLAYER_RADIUS } from "@/systems/MovementController";
 import type { PlayerState } from "@/types/game";
 
 import { useGameFrame } from "./gameClock";
-import { PLAYER_RADIUS } from "./MovementController";
 
 const BODY_LENGTH = 0.7;
 const BODY_CENTER_Y = PLAYER_RADIUS + BODY_LENGTH / 2;

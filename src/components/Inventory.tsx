@@ -1,11 +1,10 @@
 import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
 
-import type { InventoryItem } from "@/types/game";
-
-const SLOT_COUNT = 3;
+import { MAX_INVENTORY_SLOTS } from "@/systems/InventorySystem";
+import type { ItemDefinition } from "@/types/game";
 
 interface InventoryProps {
-  items: readonly InventoryItem[];
+  items: readonly ItemDefinition[];
   style?: StyleProp<ViewStyle>;
 }
 
@@ -13,7 +12,7 @@ interface InventoryProps {
 export function Inventory({ items, style }: InventoryProps) {
   return (
     <View style={[styles.container, style]} pointerEvents="none" accessibilityLabel="Inventory">
-      {Array.from({ length: SLOT_COUNT }, (_, index) => {
+      {Array.from({ length: MAX_INVENTORY_SLOTS }, (_, index) => {
         const item = items[index];
         return (
           <View key={index} style={[styles.slot, item && styles.slotFilled]}>

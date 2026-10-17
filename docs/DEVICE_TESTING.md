@@ -37,6 +37,15 @@ Tick each item off. If anything differs, note what you saw.
 - [ ] **Trap:** the spikes rattle, rise and retract on a cycle. Getting hit flashes the screen red, shows a message, costs −50, and returns you just inside the door.
 - [ ] **Exit:** the glowing green archway shows **Stage Complete!** with your time, the score breakdown and the total.
 
+### Levels and transitions
+- [ ] The start screen lists both levels. Tapping one starts that level.
+- [ ] After the temple, **Level Complete!** shows stars and a **Next level** button, which opens the Moonlit Cloister.
+- [ ] Cloister: blue moonlit colours and a tiled stone floor. If the floor is plain grey-blue, the texture failed to load; please report it, the level should still play.
+- [ ] Cloister: the timer counts **down** from 2:00 and turns red in the last 15 s.
+- [ ] Cloister: the silver key opens the gate. Stepping into the dim exit before answering the altar shows "The moon gate is sealed…" once.
+- [ ] Cloister: after the altar is answered, the exit glows green and works. The completion screen has no **Next level** button (it's the last level).
+- [ ] Cloister: let the timer run out. **Out of time** appears, and **Try again** restarts at 2:00.
+
 ### Pause and app lifecycle
 - [ ] The pause button freezes everything: player, spikes, timer and pop-up messages.
 - [ ] **Resume** continues exactly where you left off. **Restart stage** starts from the beginning with 0:00 and ★ 0.

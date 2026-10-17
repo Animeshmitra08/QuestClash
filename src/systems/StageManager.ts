@@ -1,275 +1,250 @@
+import type { Interactable, LevelDefinition, TriggerZone, Vec2 } from "@/types/game";
 import type {
-  Interactable,
-  InventoryItem,
-  LevelDefinition,
-  PuzzleDefinition,
-} from "@/types/game";
+  FrameResult,
+  GameEvent,
+  GameState,
+  InteractionResult,
+  LevelEvent,
+  LevelStatus,
+  Notice,
+  TrapState,
+} from "@/types/state";
 
-import { getPuzzle, isCorrectAnswer } from "./PuzzleSystem";
-
-export type StageStatus = "playing" | "paused" | "completed";
-
-/** A short message that pops up over the game for a moment. */
-export interface Notice {
-  /** Increases with every notice, so the UI can tell two identical texts apart. */
-  id: number;
-  text: string;
-  tone: "info" | "success" | "danger";
-}
+import { circleOverlapsRect } from "./CollisionSystem";
+import { createInitialGameState, getSpawnPoint } from "./gameState";
+import { runInteraction } from "./interactionRules";
+import { validateLevel } from "./levelValidation";
+import { isConditionMet } from "./ObjectiveSystem";
+import { answerPuzzle, getPuzzle } from "./PuzzleSystem";
+import { wholeSeconds } from "./ScoreSystem";
+import { nextState, type TransitionTable } from "./stateMachine";
+import { TrapSystem } from "./TrapSystem";
 
 /**
- * Everything about stage progress, as an immutable snapshot.
- * A new object is created on every change, which is what React needs to re-render.
+ * playing --pause--> paused --resume--> playing
+ * playing --complete--> completed (final)
+ * playing --fail--> failed (final; e.g. time ran out)
  */
-export interface StageSnapshot {
-  status: StageStatus;
-  inventory: readonly InventoryItem[];
-  /** Pickups that have been removed from the world. */
-  collectedIds: readonly string[];
-  /** Inspectables the player has read (e.g. the clue). */
-  inspectedIds: readonly string[];
-  solvedPuzzleIds: readonly string[];
-  openedDoorIds: readonly string[];
-  trapHits: number;
-  wrongAnswers: number;
-  /**
-   * Play time. While playing it is published in whole seconds only, so the HUD
-   * re-renders once per second rather than every frame. Exact once completed.
-   */
-  elapsedSeconds: number;
-  notice: Notice | null;
-}
-
-/** What the screen should show after the player uses something. */
-export type InteractionResult =
-  | { type: "none" }
-  | { type: "message"; title: string; message: string }
-  | { type: "puzzle"; puzzle: PuzzleDefinition };
+export const LEVEL_TRANSITIONS: TransitionTable<LevelStatus, LevelEvent> = {
+  playing: { pause: "paused", complete: "completed", fail: "failed" },
+  paused: { resume: "playing" },
+  completed: {},
+  failed: {},
+};
 
 const NOTICE_SECONDS = 2.5;
-
 /**
- * Floor to whole seconds, tolerating floating-point drift: adding 1/60 sixty
- * times gives 0.99999…, which should still count as 1 second.
+ * How much of the player's body must touch a trigger. Smaller than the collision
+ * radius so a toe brushing the spike strip doesn't count; that feels fairer.
  */
-export function wholeSeconds(seconds: number) {
-  return Math.floor(seconds + 1e-6);
-}
+const TRIGGER_RADIUS = 0.25;
+const NO_RESPAWN: FrameResult = { respawnAt: null };
 
-function createInitialSnapshot(): StageSnapshot {
-  return {
-    status: "playing",
-    inventory: [],
-    collectedIds: [],
-    inspectedIds: [],
-    solvedPuzzleIds: [],
-    openedDoorIds: [],
-    trapHits: 0,
-    wrongAnswers: 0,
-    elapsedSeconds: 0,
-    notice: null,
-  };
-}
+type Listener<T> = (value: T) => void;
 
 /**
- * What the player should do next, worked out from progress and the level's
- * door requirements. The order matches the intended route through the temple.
- */
-export function currentObjective(level: LevelDefinition, snapshot: StageSnapshot): string {
-  if (snapshot.status === "completed") return "Stage complete";
-
-  const door = level.interactables.find((item) => item.kind === "door");
-  if (!door || snapshot.openedDoorIds.includes(door.id)) {
-    return "Cross the spikes and reach the exit";
-  }
-
-  const hasKey = snapshot.inventory.some((item) => item.id === door.requiredItemId);
-  if (!hasKey) return "Find the key to the temple door";
-
-  if (!snapshot.solvedPuzzleIds.includes(door.requiredPuzzleId)) {
-    return snapshot.inspectedIds.length > 0
-      ? "Set the sun dial to break the seal"
-      : "Find a clue to the sun dial";
-  }
-
-  return "Open the temple door";
-}
-
-/**
- * The rules of the stage. Pure TypeScript: no React, no Three.js.
+ * Runs one attempt at a level. Pure TypeScript: no React, no Three.js.
  *
- * The 3D scene reports what happened (USE pressed on X, trap touched, exit
- * reached); this class decides what that means and updates the snapshot. The
- * HUD and the scene both read the snapshot to show the result.
+ * - The scene reports what happened (USE on an object, a frame of play at some
+ *   position); StageManager applies the rules from the systems and stores the result.
+ * - React reads `getState()` through `subscribe` (shaped for useSyncExternalStore).
+ * - Listeners such as AudioManager receive GameEvents through `onEvent`.
+ *
+ * Per-frame values (trap heights) live in mutable TrapSystem objects, read by the
+ * renderer through `getTrap`, so they never trigger React renders.
  */
 export class StageManager {
-  private snapshot: StageSnapshot = createInitialSnapshot();
-  private readonly listeners = new Set<() => void>();
+  private state: GameState;
+  private readonly stateListeners = new Set<() => void>();
+  private readonly eventListeners = new Set<Listener<GameEvent>>();
+  private readonly traps = new Map<string, TrapSystem>();
   private noticeCounter = 0;
   private noticeTimeLeft = 0;
   private elapsed = 0;
+  /** Triggers the player stood in last frame, to tell "stepped in" from "still standing". */
+  private triggersOccupied = new Set<string>();
 
-  constructor(private readonly level: LevelDefinition) {}
+  constructor(readonly level: LevelDefinition) {
+    const problems = validateLevel(level);
+    if (problems.length > 0) {
+      throw new Error(`Level "${level.id}" is invalid:\n- ${problems.join("\n- ")}`);
+    }
+    this.state = createInitialGameState(level);
+    for (const trigger of level.triggers) {
+      if (trigger.kind === "trap") {
+        this.traps.set(trigger.id, new TrapSystem(trigger.timing, trigger.startOffset));
+      }
+    }
+  }
 
-  // --- Subscription (shaped for React's useSyncExternalStore) ---------------
+  // --- Subscriptions ----------------------------------------------------------
 
-  getSnapshot = (): StageSnapshot => this.snapshot;
+  getState = (): GameState => this.state;
 
   subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
+    this.stateListeners.add(listener);
+    return () => this.stateListeners.delete(listener);
   };
 
-  private update(changes: Partial<StageSnapshot>) {
-    this.snapshot = { ...this.snapshot, ...changes };
-    this.listeners.forEach((listener) => listener());
-  }
-
-  private notify(text: string, tone: Notice["tone"]): Pick<StageSnapshot, "notice"> {
-    this.noticeTimeLeft = NOTICE_SECONDS;
-    return { notice: { id: ++this.noticeCounter, text, tone } };
-  }
-
-  // --- Queries ---------------------------------------------------------------
-
-  hasItem(itemId: string) {
-    return this.snapshot.inventory.some((item) => item.id === itemId);
-  }
-
-  isPuzzleSolved(puzzleId: string) {
-    return this.snapshot.solvedPuzzleIds.includes(puzzleId);
+  onEvent(listener: Listener<GameEvent>): () => void {
+    this.eventListeners.add(listener);
+    return () => this.eventListeners.delete(listener);
   }
 
   /** True while the game world should advance (not paused, not finished). */
   get isRunning() {
-    return this.snapshot.status === "playing";
+    return this.state.status === "playing";
   }
 
-  // --- Flow ------------------------------------------------------------------
+  /** Live trap state for the renderer. */
+  getTrap(trapId: string): TrapState | undefined {
+    return this.traps.get(trapId);
+  }
+
+  // --- Level flow (state machine) ---------------------------------------------
 
   pause() {
-    if (this.snapshot.status === "playing") this.update({ status: "paused" });
+    if (this.transition("pause")) this.emit({ type: "levelPaused" });
   }
 
   resume() {
-    if (this.snapshot.status === "paused") this.update({ status: "playing" });
+    if (this.transition("resume")) this.emit({ type: "levelResumed" });
   }
 
-  // --- Events reported by the game ------------------------------------------
+  // --- Events reported by the game -----------------------------------------------
 
-  /** Advance the stage timer and notice expiry. Called every frame; does nothing while paused. */
-  tick(delta: number) {
-    if (!this.isRunning) return;
+  /**
+   * One frame of play: timers, traps, and the trigger zones the player stands in.
+   * Does nothing unless the level is running.
+   */
+  update(dt: number, playerPosition: Vec2): FrameResult {
+    if (!this.isRunning) return NO_RESPAWN;
 
-    const previousWholeSeconds = wholeSeconds(this.elapsed);
-    this.elapsed += delta;
-    const changes: Partial<StageSnapshot> = {};
+    this.tickTimers(dt);
+    if (!this.isRunning) return NO_RESPAWN; // the time limit just ran out
+    this.traps.forEach((trap) => trap.update(dt));
 
-    if (wholeSeconds(this.elapsed) !== previousWholeSeconds) {
-      changes.elapsedSeconds = wholeSeconds(this.elapsed);
+    const inside = new Set<string>();
+    let result = NO_RESPAWN;
+    for (const trigger of this.level.triggers) {
+      if (!circleOverlapsRect(playerPosition, TRIGGER_RADIUS, trigger)) continue;
+      inside.add(trigger.id);
+      const outcome = this.inTrigger(trigger);
+      if (outcome) {
+        result = outcome;
+        break;
+      }
     }
-    if (this.snapshot.notice) {
-      this.noticeTimeLeft -= delta;
-      if (this.noticeTimeLeft <= 0) changes.notice = null;
-    }
-    if (Object.keys(changes).length > 0) this.update(changes);
+    this.triggersOccupied = inside;
+    return result;
+  }
+
+  /** The time limit in seconds, if the level has one. */
+  get timeLimitSeconds(): number | null {
+    return this.level.timeLimitSeconds ?? null;
   }
 
   /** The player pressed USE on `target`. */
   interact(target: Interactable): InteractionResult {
-    if (this.snapshot.status !== "playing") return { type: "none" };
-
-    switch (target.kind) {
-      case "inspect": {
-        const { inspectedIds } = this.snapshot;
-        if (!inspectedIds.includes(target.id)) {
-          this.update({ inspectedIds: [...inspectedIds, target.id] });
-        }
-        return { type: "message", title: target.title, message: target.message };
-      }
-
-      case "pickup": {
-        if (this.snapshot.collectedIds.includes(target.id)) return { type: "none" };
-        this.update({
-          collectedIds: [...this.snapshot.collectedIds, target.id],
-          inventory: [...this.snapshot.inventory, target.item],
-          ...this.notify(`You found the ${target.item.name}!`, "success"),
-        });
-        return { type: "none" };
-      }
-
-      case "puzzle": {
-        if (this.isPuzzleSolved(target.puzzleId)) {
-          return {
-            type: "message",
-            title: "The Sun Dial",
-            message: "The dial is locked in place. Its seal is already broken.",
-          };
-        }
-        return { type: "puzzle", puzzle: getPuzzle(this.level.puzzles, target.puzzleId) };
-      }
-
-      case "door": {
-        if (this.snapshot.openedDoorIds.includes(target.id)) return { type: "none" };
-        const hasKey = this.hasItem(target.requiredItemId);
-        const sealBroken = this.isPuzzleSolved(target.requiredPuzzleId);
-
-        if (!hasKey) {
-          return {
-            type: "message",
-            title: "Locked Door",
-            message: "A heavy stone door with a bronze keyhole. It won't move without a key.",
-          };
-        }
-        if (!sealBroken) {
-          return {
-            type: "message",
-            title: "Sealed Door",
-            message:
-              "The key turns, but an ancient seal still holds the door shut. The sun dial nearby might release it.",
-          };
-        }
-
-        // Both conditions met: the key is used up and the door opens.
-        this.update({
-          openedDoorIds: [...this.snapshot.openedDoorIds, target.id],
-          inventory: this.snapshot.inventory.filter((item) => item.id !== target.requiredItemId),
-          ...this.notify("The door grinds open…", "success"),
-        });
-        return { type: "none" };
-      }
-    }
+    if (!this.isRunning) return { type: "none" };
+    const outcome = runInteraction(target, this.state, this.level);
+    this.commit(outcome.state, outcome.events, outcome.notice);
+    return outcome.result;
   }
 
   /** The player chose an answer in the puzzle dialog. Returns true if it was right. */
   answerPuzzle(puzzleId: string, optionIndex: number): boolean {
-    if (this.snapshot.status !== "playing" || this.isPuzzleSolved(puzzleId)) return false;
-
+    if (!this.isRunning) return false;
     const puzzle = getPuzzle(this.level.puzzles, puzzleId);
-    if (!isCorrectAnswer(puzzle, optionIndex)) {
-      this.update({ wrongAnswers: this.snapshot.wrongAnswers + 1 });
-      return false;
-    }
+    const current = this.state.puzzles[puzzleId];
+    const outcome = answerPuzzle(puzzle, current, optionIndex);
+    if (outcome.correct === null) return false;
 
-    this.update({
-      solvedPuzzleIds: [...this.snapshot.solvedPuzzleIds, puzzleId],
-      ...this.notify("The seal of the suns breaks!", "success"),
-    });
+    const state = { ...this.state, puzzles: { ...this.state.puzzles, [puzzleId]: outcome.state } };
+    if (outcome.correct) {
+      this.commit(state, [{ type: "puzzleSolved", puzzleId }], { text: puzzle.solvedNotice, tone: "success" });
+    } else {
+      this.commit(state, [{ type: "puzzleFailed", puzzleId }]);
+    }
+    return outcome.correct;
+  }
+
+  // --- Internals -------------------------------------------------------------
+
+  /** The player is standing in `trigger` this frame. Returns a result to stop checking others. */
+  private inTrigger(trigger: TriggerZone): FrameResult | null {
+    switch (trigger.kind) {
+      case "trap": {
+        if (!this.traps.get(trigger.id)?.lethal) return null;
+        this.commit(
+          { ...this.state, trapHits: this.state.trapHits + 1 },
+          [{ type: "trapHit", trapId: trigger.id }],
+          { text: trigger.hitMessage, tone: "danger" },
+        );
+        return { respawnAt: getSpawnPoint(this.level, trigger.respawnPointId) };
+      }
+      case "exit": {
+        if (trigger.requires && !isConditionMet(trigger.requires, this.state)) {
+          // Say so once when the player steps in, not on every frame they stand there.
+          if (!this.triggersOccupied.has(trigger.id)) {
+            this.commit(
+              this.state,
+              [{ type: "exitLocked", exitId: trigger.id }],
+              trigger.lockedMessage ? { text: trigger.lockedMessage, tone: "info" } : undefined,
+            );
+          }
+          return null;
+        }
+        if (this.transition("complete", { elapsedSeconds: this.elapsed, notice: null })) {
+          this.emit({ type: "levelCompleted", elapsedSeconds: this.elapsed });
+        }
+        return NO_RESPAWN;
+      }
+    }
+  }
+
+  /** Apply a level-flow event if it is allowed. Returns false (and changes nothing) if not. */
+  private transition(event: LevelEvent, changes: Partial<GameState> = {}): boolean {
+    const status = nextState(LEVEL_TRANSITIONS, this.state.status, event);
+    if (status === null) return false;
+    this.commit({ ...this.state, ...changes, status });
     return true;
   }
 
-  /** The player stood on an active trap. The caller moves them to the checkpoint. */
-  hitTrap() {
-    if (this.snapshot.status !== "playing") return;
-    this.update({
-      trapHits: this.snapshot.trapHits + 1,
-      ...this.notify("The spikes got you! Back to the checkpoint.", "danger"),
-    });
+  private tickTimers(dt: number) {
+    const previousSeconds = wholeSeconds(this.elapsed);
+    this.elapsed += dt;
+    const changes: Partial<GameState> = {};
+
+    if (wholeSeconds(this.elapsed) !== previousSeconds) changes.elapsedSeconds = wholeSeconds(this.elapsed);
+    if (this.state.notice) {
+      this.noticeTimeLeft -= dt;
+      if (this.noticeTimeLeft <= 0) changes.notice = null;
+    }
+    if (Object.keys(changes).length > 0) this.commit({ ...this.state, ...changes });
+
+    const limit = this.level.timeLimitSeconds;
+    if (limit !== undefined && this.elapsed >= limit) {
+      if (this.transition("fail", { elapsedSeconds: limit, notice: null })) {
+        this.emit({ type: "levelFailed", reason: "timeUp" });
+      }
+    }
   }
 
-  /** The player stepped into the exit. */
-  reachExit() {
-    if (this.snapshot.status !== "playing") return;
-    this.update({ status: "completed", elapsedSeconds: this.elapsed, notice: null });
+  /** Store a new state (if it changed), tell React, then tell event listeners. */
+  private commit(next: GameState, events: GameEvent[] = [], notice?: { text: string; tone: Notice["tone"] }) {
+    if (notice) {
+      this.noticeTimeLeft = NOTICE_SECONDS;
+      next = { ...next, notice: { id: ++this.noticeCounter, ...notice } };
+    }
+    if (next !== this.state) {
+      this.state = next;
+      this.stateListeners.forEach((listener) => listener());
+    }
+    events.forEach((event) => this.emit(event));
+  }
+
+  private emit(event: GameEvent) {
+    this.eventListeners.forEach((listener) => listener(event));
   }
 }

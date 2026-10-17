@@ -1,6 +1,8 @@
 import { type RefObject, useRef } from "react";
 import type { Group, Mesh, MeshStandardMaterial } from "three";
 
+import { isDoorOpen, isPickupCollected, isPuzzleSolved } from "@/systems/gameState";
+import type { InteractionSystem } from "@/systems/InteractionSystem";
 import type { StageManager } from "@/systems/StageManager";
 import type {
   DoorInteractable,
@@ -11,7 +13,6 @@ import type {
 } from "@/types/game";
 
 import { useGameFrame } from "./gameClock";
-import type { InteractionSystem } from "./InteractionSystem";
 
 const GOLD = "#f2c230";
 const MARKER_HEIGHT = 2.1;
@@ -109,7 +110,7 @@ function KeyPickup({ item, interaction, stage }: ItemProps<PickupInteractable>) 
   useGameFrame((_, delta) => {
     const group = groupRef.current;
     if (!group) return;
-    group.visible = !stage.getSnapshot().collectedIds.includes(item.id);
+    group.visible = !isPickupCollected(stage.getState(), item.id);
     if (!group.visible) return;
 
     elapsed.current += delta;
@@ -148,7 +149,7 @@ function KeyPickup({ item, interaction, stage }: ItemProps<PickupInteractable>) 
 function SunDial({ item, interaction, stage }: ItemProps<PuzzleInteractable>) {
   const focus = useFocusAmount(interaction, item.id);
   const discMaterialRef = useRef<MeshStandardMaterial>(null);
-  const isSolved = () => stage.getSnapshot().solvedPuzzleIds.includes(item.puzzleId);
+  const isSolved = () => isPuzzleSolved(stage.getState(), item.puzzleId);
 
   useGameFrame(() => {
     const disc = discMaterialRef.current;
@@ -187,7 +188,7 @@ function Door({ item, interaction, stage }: ItemProps<DoorInteractable>) {
     const panel = panelRef.current;
     if (!panel) return;
 
-    const isOpen = stage.getSnapshot().openedDoorIds.includes(item.id);
+    const isOpen = isDoorOpen(stage.getState(), item.id);
     if (isOpen && openProgress.current < 1) {
       openProgress.current = Math.min(openProgress.current + delta / DOOR_OPEN_SECONDS, 1);
     }

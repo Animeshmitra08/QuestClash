@@ -3,19 +3,37 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { formatTime, type ScoreBreakdown } from "@/systems/ScoreSystem";
 
 interface StageCompleteDialogProps {
+  levelName: string;
   elapsedSeconds: number;
   score: ScoreBreakdown;
   onRestart: () => void;
+  /** Shown as the main button when there is a next level. */
+  onNextLevel?: () => void;
   onExit: () => void;
 }
 
-/** Shown when the player reaches the exit: final time, score breakdown, and what next. */
-export function StageCompleteDialog({ elapsedSeconds, score, onRestart, onExit }: StageCompleteDialogProps) {
+const MAX_STARS = 3;
+
+/** Shown when the player reaches the exit: stars, final time, score breakdown, and what next. */
+export function StageCompleteDialog({
+  levelName,
+  elapsedSeconds,
+  score,
+  onRestart,
+  onNextLevel,
+  onExit,
+}: StageCompleteDialogProps) {
   return (
     <View style={styles.backdrop}>
       <View style={styles.panel}>
-        <Text style={styles.title}>Stage Complete!</Text>
-        <Text style={styles.subtitle}>You escaped the Forgotten Temple in {formatTime(elapsedSeconds)}</Text>
+        <Text style={styles.title}>Level Complete!</Text>
+        <Text style={styles.stars} accessibilityLabel={`${score.stars} of ${MAX_STARS} stars`}>
+          {"★".repeat(score.stars)}
+          <Text style={styles.starsEmpty}>{"★".repeat(MAX_STARS - score.stars)}</Text>
+        </Text>
+        <Text style={styles.subtitle}>
+          You escaped {levelName} in {formatTime(elapsedSeconds)}
+        </Text>
 
         {/* Scrolls if the breakdown doesn't fit on a short landscape screen. */}
         <ScrollView style={styles.breakdown} contentContainerStyle={styles.breakdownContent}>
@@ -35,12 +53,21 @@ export function StageCompleteDialog({ elapsedSeconds, score, onRestart, onExit }
         </View>
 
         <View style={styles.buttons}>
+          {onNextLevel && (
+            <Pressable
+              style={({ pressed }) => [styles.button, pressed && styles.pressed]}
+              onPress={onNextLevel}
+              accessibilityRole="button"
+            >
+              <Text style={styles.buttonText}>Next level</Text>
+            </Pressable>
+          )}
           <Pressable
-            style={({ pressed }) => [styles.button, pressed && styles.pressed]}
+            style={({ pressed }) => [styles.button, onNextLevel && styles.secondary, pressed && styles.pressed]}
             onPress={onRestart}
             accessibilityRole="button"
           >
-            <Text style={styles.buttonText}>Play again</Text>
+            <Text style={[styles.buttonText, onNextLevel && styles.secondaryText]}>Play again</Text>
           </Pressable>
           <Pressable
             style={({ pressed }) => [styles.button, styles.secondary, pressed && styles.pressed]}
@@ -78,6 +105,15 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: "800",
     textAlign: "center",
+  },
+  stars: {
+    color: "#f2c230",
+    fontSize: 30,
+    textAlign: "center",
+    letterSpacing: 4,
+  },
+  starsEmpty: {
+    color: "rgba(242, 230, 208, 0.2)",
   },
   subtitle: {
     color: "#f2e6d0",

@@ -1,7 +1,7 @@
 import { StyleSheet, Text } from "react-native";
 import Animated, { FadeInDown, FadeOut } from "react-native-reanimated";
 
-import type { Notice } from "@/systems/StageManager";
+import type { Notice } from "@/types/state";
 
 const TONE_COLORS: Record<Notice["tone"], string> = {
   info: "#8a7654",

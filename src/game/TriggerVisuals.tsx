@@ -1,8 +1,11 @@
 import { useLayoutEffect, useRef } from "react";
-import { type Group, type InstancedMesh, type MeshStandardMaterial, Object3D } from "three";
+import { Color, type Group, type InstancedMesh, type MeshStandardMaterial, Object3D } from "three";
 
-import { HIDDEN_HEIGHT, type TrapSystem } from "@/systems/TrapSystem";
-import type { TriggerZone } from "@/types/game";
+import { isConditionMet } from "@/systems/ObjectiveSystem";
+import type { StageManager } from "@/systems/StageManager";
+import { HIDDEN_HEIGHT } from "@/systems/TrapSystem";
+import type { ExitTrigger, TrapTrigger, TriggerZone } from "@/types/game";
+import type { TrapState } from "@/types/state";
 
 import { useGameFrame } from "./gameClock";
 
@@ -14,9 +17,9 @@ const WARNING_SHAKE = 0.03;
 /**
  * A field of spikes covering the trap zone. Drawn as one InstancedMesh, so ~90
  * spikes cost a single draw call. The whole field moves up and down together,
- * following TrapSystem; below the floor the spikes are simply hidden by it.
+ * following the trap's live state; below the floor the spikes are simply hidden by it.
  */
-function SpikeTrap({ zone, trap }: { zone: TriggerZone; trap: TrapSystem }) {
+function SpikeTrap({ zone, trap }: { zone: TrapTrigger; trap: TrapState }) {
   const columns = Math.floor(zone.size.x / SPIKE_SPACING);
   const rows = Math.floor(zone.size.z / SPIKE_SPACING);
   const count = columns * rows;
@@ -52,7 +55,7 @@ function SpikeTrap({ zone, trap }: { zone: TriggerZone; trap: TrapSystem }) {
     elapsed.current += delta;
     field.position.y = trap.height;
     // A quick rattle warns the player just before the spikes shoot up.
-    field.position.x = trap.warning ? Math.sin(elapsed.current * 70) * WARNING_SHAKE : 0;
+    field.position.x = trap.phase === "warning" ? Math.sin(elapsed.current * 70) * WARNING_SHAKE : 0;
   });
 
   return (
@@ -77,8 +80,14 @@ function SpikeTrap({ zone, trap }: { zone: TriggerZone; trap: TrapSystem }) {
   );
 }
 
-/** Stone archway with a glowing, pulsing portal against the north wall. */
-function ExitPortal({ zone }: { zone: TriggerZone }) {
+const PORTAL_OPEN = new Color("#3fe0b0");
+const PORTAL_LOCKED = new Color("#4a5a7a");
+
+/**
+ * Stone archway with a portal against the north wall: glowing and pulsing when
+ * the exit works, dim and still while its `requires` condition isn't met yet.
+ */
+function ExitPortal({ zone, stage }: { zone: ExitTrigger; stage: StageManager }) {
   const portalMaterialRef = useRef<MeshStandardMaterial>(null);
   const elapsed = useRef(0);
   const halfWidth = zone.size.x / 2;
@@ -87,9 +96,11 @@ function ExitPortal({ zone }: { zone: TriggerZone }) {
 
   useGameFrame((_, delta) => {
     elapsed.current += delta;
-    if (portalMaterialRef.current) {
-      portalMaterialRef.current.emissiveIntensity = 1.2 + Math.sin(elapsed.current * 2) * 0.4;
-    }
+    const portal = portalMaterialRef.current;
+    if (!portal) return;
+    const locked = zone.requires !== undefined && !isConditionMet(zone.requires, stage.getState());
+    portal.emissive.copy(locked ? PORTAL_LOCKED : PORTAL_OPEN);
+    portal.emissiveIntensity = locked ? 0.35 : 1.2 + Math.sin(elapsed.current * 2) * 0.4;
   });
 
   return (
@@ -121,20 +132,24 @@ function ExitPortal({ zone }: { zone: TriggerZone }) {
 
 interface TriggerVisualsProps {
   triggers: TriggerZone[];
-  trap: TrapSystem;
+  /** Source of each trap's live state. */
+  stage: StageManager;
 }
 
-/** Draws the trap and exit zones. Rendering only; StageController handles what they do. */
-export function TriggerVisuals({ triggers, trap }: TriggerVisualsProps) {
+/** Draws the trap and exit zones. Rendering only; StageManager decides what they do. */
+export function TriggerVisuals({ triggers, stage }: TriggerVisualsProps) {
   return (
     <group>
-      {triggers.map((zone) =>
-        zone.kind === "trap" ? (
-          <SpikeTrap key={zone.id} zone={zone} trap={trap} />
-        ) : (
-          <ExitPortal key={zone.id} zone={zone} />
-        ),
-      )}
+      {triggers.map((zone) => {
+        switch (zone.kind) {
+          case "trap": {
+            const trap = stage.getTrap(zone.id);
+            return trap ? <SpikeTrap key={zone.id} zone={zone} trap={trap} /> : null;
+          }
+          case "exit":
+            return <ExitPortal key={zone.id} zone={zone} stage={stage} />;
+        }
+      })}
     </group>
   );
 }

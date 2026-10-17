@@ -1,14 +1,18 @@
 import { router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+import { FIRST_LEVEL_ID, LEVEL_CATALOG } from "@/levels/catalog";
 
 const HOW_TO_PLAY = [
   ["🕹️", "Drag the joystick (bottom-left) to walk."],
   ["✋", "Tap USE (bottom-right) next to glowing objects."],
-  ["🗝️", "Find the key and the clue, solve the sun dial, open the door."],
-  ["⚠️", "Time your run past the spikes and reach the exit."],
 ] as const;
+
+function play(levelId: string) {
+  router.push({ pathname: "/game", params: { level: levelId } });
+}
 
 export default function StartScreen() {
   const insets = useSafeAreaInsets();
@@ -25,7 +29,7 @@ export default function StartScreen() {
       <View style={styles.hero}>
         <Text style={styles.eyebrow}>A TEMPLE PUZZLE ADVENTURE</Text>
         <Text style={styles.title}>QuestClash</Text>
-        <Text style={styles.subtitle}>Stage 1 · The Forgotten Temple</Text>
+        <Text style={styles.subtitle}>Find keys, solve puzzles, dodge the traps.</Text>
 
         {/*
           Navigate with router.push rather than <Link asChild>: Link's Slot merges the
@@ -34,22 +38,43 @@ export default function StartScreen() {
         */}
         <Pressable
           style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
-          onPress={() => router.push("/game")}
+          onPress={() => play(FIRST_LEVEL_ID)}
           accessibilityRole="button"
         >
           <Text style={styles.buttonText}>Start Game</Text>
         </Pressable>
+
+        <View style={styles.tips}>
+          {HOW_TO_PLAY.map(([icon, text]) => (
+            <View key={text} style={styles.tip}>
+              <Text style={styles.tipIcon}>{icon}</Text>
+              <Text style={styles.tipText}>{text}</Text>
+            </View>
+          ))}
+        </View>
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>How to play</Text>
-        {HOW_TO_PLAY.map(([icon, text]) => (
-          <View key={text} style={styles.tip}>
-            <Text style={styles.tipIcon}>{icon}</Text>
-            <Text style={styles.tipText}>{text}</Text>
-          </View>
-        ))}
-        <Text style={styles.cardFooter}>Faster runs with fewer mistakes score higher.</Text>
+        <Text style={styles.cardTitle}>Levels</Text>
+        <ScrollView contentContainerStyle={styles.levelList}>
+          {LEVEL_CATALOG.map((level, index) => (
+            <Pressable
+              key={level.id}
+              style={({ pressed }) => [styles.level, pressed && styles.buttonPressed]}
+              onPress={() => play(level.id)}
+              accessibilityRole="button"
+              accessibilityLabel={`Play level ${index + 1}, ${level.name}`}
+            >
+              <Text style={styles.levelNumber}>{index + 1}</Text>
+              <View style={styles.levelText}>
+                <Text style={styles.levelName}>{level.name}</Text>
+                <Text style={styles.levelDescription}>{level.description}</Text>
+              </View>
+              <Text style={styles.levelPlay}>▶</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+        <Text style={styles.cardFooter}>Faster runs with fewer mistakes earn more stars.</Text>
       </View>
     </View>
   );
@@ -82,7 +107,7 @@ const styles = StyleSheet.create({
   subtitle: {
     color: "#c9b99c",
     fontSize: 18,
-    marginBottom: 28,
+    marginBottom: 24,
   },
   button: {
     alignSelf: "flex-start",
@@ -99,10 +124,30 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: "800",
   },
+  tips: {
+    marginTop: 20,
+    gap: 6,
+  },
+  tip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  tipIcon: {
+    fontSize: 18,
+    width: 26,
+    textAlign: "center",
+  },
+  tipText: {
+    flex: 1,
+    color: "#c9b99c",
+    fontSize: 14,
+  },
   card: {
     flex: 1,
     maxWidth: 420,
-    padding: 20,
+    maxHeight: "90%",
+    padding: 16,
     borderRadius: 12,
     backgroundColor: "#2a231a",
     borderWidth: 1,
@@ -114,25 +159,43 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "800",
   },
-  tip: {
+  levelList: {
+    gap: 8,
+  },
+  level: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
+    padding: 10,
+    borderRadius: 8,
+    backgroundColor: "rgba(242, 230, 208, 0.06)",
   },
-  tipIcon: {
-    fontSize: 20,
-    width: 28,
+  levelNumber: {
+    color: "#f2c230",
+    fontSize: 22,
+    fontWeight: "900",
+    width: 24,
     textAlign: "center",
   },
-  tipText: {
+  levelText: {
     flex: 1,
+  },
+  levelName: {
     color: "#f2e6d0",
-    fontSize: 14,
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  levelDescription: {
+    color: "#c9b99c",
+    fontSize: 12,
+  },
+  levelPlay: {
+    color: "#f2c230",
+    fontSize: 18,
   },
   cardFooter: {
     color: "#c9b99c",
     fontSize: 13,
     fontStyle: "italic",
-    marginTop: 4,
   },
 });

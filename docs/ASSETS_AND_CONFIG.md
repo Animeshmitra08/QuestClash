@@ -161,25 +161,54 @@ Both examples pass this project's typecheck and lint, but haven't been run on a 
 
 SDK 57 uses **`expo-audio`**. `expo-av` has no SDK 57 release, so don't follow older tutorials that use it.
 
-```bash
-npx expo install expo-audio
-```
+The game already has the wiring for sound:
+- `StageManager` emits typed events.
+- `AudioManager` (`src/systems/AudioManager.ts`) maps them to sound ids through `EVENT_SOUNDS`, and plays them through a `SoundBackend`.
+- The default backend is silent, so nothing is needed until you have sound files.
 
-This is included in Expo Go and needs no config plugin for in-app sound effects. Check `npx expo-doctor` afterwards. If it asks for a rebuild, rebuild your development build.
+Adding real sound means writing a backend; no gameplay code changes.
 
-```tsx
-import { useAudioPlayer } from "expo-audio";
+1. Install `expo-audio`. It contains native code, so **rebuild your development build** afterwards (`npx expo run:android`). Expo Go already includes it, but your own build doesn't until you rebuild.
+   ```bash
+   npx expo install expo-audio
+   ```
+2. Put the files in `assets/audio/sfx/`, one per `SoundId`.
+3. Create `src/systems/expoAudioBackend.ts`:
+   ```ts
+   import { createAudioPlayer } from "expo-audio";
 
-const pickup = useAudioPlayer(require("@/assets/audio/sfx/pickup.mp3"));
+   import type { SoundBackend, SoundId } from "./AudioManager";
 
-// When the player picks up the key:
-pickup.seekTo(0); // rewind, so repeated plays restart the sound
-pickup.play();
-```
+   const FILES: Record<SoundId, number> = {
+     pickup: require("@/assets/audio/sfx/pickup.mp3"),
+     doorOpen: require("@/assets/audio/sfx/door-open.mp3"),
+     // …one entry per SoundId; TypeScript lists any you've missed
+   };
 
-For looping music, set `music.loop = true` and call `music.play()`.
+   export function createExpoAudioBackend(): SoundBackend {
+     // One player per sound, created once and reused.
+     const players = Object.fromEntries(
+       Object.entries(FILES).map(([id, file]) => [id, createAudioPlayer(file)]),
+     ) as Record<SoundId, ReturnType<typeof createAudioPlayer>>;
 
-To keep game rules free of audio code, play sounds from the screen in response to `StageManager` changes. For example, compare the previous and current snapshot in `game.tsx`: a new entry in `collectedIds` plays the pickup sound, and `trapHits` going up plays the hit sound. That way `StageManager` stays pure and testable.
+     return {
+       play(sound) {
+         const player = players[sound];
+         player.seekTo(0); // rewind, so repeated plays restart the sound
+         player.play();
+       },
+       dispose() {
+         // createAudioPlayer players must be released by hand, or they leak.
+         Object.values(players).forEach((player) => player.release());
+       },
+     };
+   }
+   ```
+4. In `src/app/game.tsx`, change `new AudioManager()` to `new AudioManager(createExpoAudioBackend())`.
+
+This backend is a sketch: it isn't compiled or tested, because `expo-audio` isn't installed. The `AudioManager` side is covered by the unit tests.
+
+For looping background music, use a separate player with `player.loop = true`, outside the event mapping.
 
 ## 6. Environment-specific configuration
 

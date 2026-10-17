@@ -2,24 +2,32 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { formatTime } from "@/systems/ScoreSystem";
-import type { InventoryItem } from "@/types/game";
+import type { ItemDefinition } from "@/types/game";
 
 import { Inventory } from "./Inventory";
 
 interface GameHUDProps {
   objective: string;
   elapsedSeconds: number;
+  /** When set, the timer counts down to zero instead of up. */
+  timeLimitSeconds: number | null;
   score: number;
-  inventory: readonly InventoryItem[];
+  inventory: readonly ItemDefinition[];
   onPause: () => void;
 }
+
+/** Below this many seconds left, the countdown turns red. */
+const LOW_TIME_SECONDS = 15;
 
 /**
  * Top bar shown during play: inventory (left), current objective (center),
  * timer, score and pause button (right). Bottom-corner controls live in GameControls.
  */
-export function GameHUD({ objective, elapsedSeconds, score, inventory, onPause }: GameHUDProps) {
+export function GameHUD({ objective, elapsedSeconds, timeLimitSeconds, score, inventory, onPause }: GameHUDProps) {
   const insets = useSafeAreaInsets();
+  const remaining = timeLimitSeconds === null ? null : Math.max(0, timeLimitSeconds - elapsedSeconds);
+  const timeText = formatTime(remaining ?? elapsedSeconds);
+  const lowTime = remaining !== null && remaining <= LOW_TIME_SECONDS;
 
   return (
     <View
@@ -40,8 +48,11 @@ export function GameHUD({ objective, elapsedSeconds, score, inventory, onPause }
 
       <View style={styles.right} pointerEvents="box-none">
         <View style={styles.stats} pointerEvents="none">
-          <Text style={styles.stat} accessibilityLabel={`Time ${formatTime(elapsedSeconds)}`}>
-            ⏱ {formatTime(elapsedSeconds)}
+          <Text
+            style={[styles.stat, lowTime && styles.lowTime]}
+            accessibilityLabel={remaining === null ? `Time ${timeText}` : `Time left ${timeText}`}
+          >
+            {remaining === null ? "⏱" : "⌛"} {timeText}
           </Text>
           <Text style={styles.stat} accessibilityLabel={`Score ${score}`}>
             ★ {score}
@@ -110,6 +121,9 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "700",
     fontVariant: ["tabular-nums"],
+  },
+  lowTime: {
+    color: "#ff7a6b",
   },
   pause: {
     width: 48,

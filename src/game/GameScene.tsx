@@ -2,25 +2,23 @@ import { Canvas } from "@react-three/fiber/native";
 import { useEffect, useState } from "react";
 import { StyleSheet } from "react-native";
 
+import { createLevelCollision } from "@/systems/CollisionSystem";
+import { getSpawnPoint } from "@/systems/gameState";
+import { InteractionSystem } from "@/systems/InteractionSystem";
+import { MovementController } from "@/systems/MovementController";
 import type { StageManager } from "@/systems/StageManager";
-import { TrapSystem } from "@/systems/TrapSystem";
+import { syncWorldWithState } from "@/systems/worldSync";
 import type { Interactable, LevelDefinition } from "@/types/game";
 
 import { CAMERA_FOV, CAMERA_OFFSET, CameraController } from "./CameraController";
-import { createLevelCollision } from "./CollisionSystem";
 import { GameClock, GameClockContext } from "./gameClock";
 import { Interactables } from "./Interactables";
-import { InteractionSystem } from "./InteractionSystem";
-import { MovementController } from "./MovementController";
 import { Player } from "./Player";
 import { PlayerController } from "./PlayerController";
 import type { PlayerInput } from "./PlayerInput";
 import { Room } from "./Room";
 import { StageController } from "./StageController";
 import { TriggerVisuals } from "./TriggerVisuals";
-import { syncWorldWithStage } from "./worldSync";
-
-const BACKGROUND_COLOR = "#1b1712";
 
 interface GameSceneProps {
   level: LevelDefinition;
@@ -45,28 +43,30 @@ export function GameScene({
   onFocusChange,
   onInteract,
 }: GameSceneProps) {
-  // Game systems are created once per scene mount and updated by the frame loop.
+  // Spatial systems are created once per scene mount and updated by the frame loop.
+  // Stage rules (puzzles, doors, traps, timer) live in `stage`.
   const [systems] = useState(() => {
     const collision = createLevelCollision(level);
+    const start = getSpawnPoint(level, level.playerSpawnId);
     return {
       collision,
       interaction: new InteractionSystem(level.interactables),
-      movement: new MovementController(level.playerSpawn.position, level.playerSpawn.facing, collision),
-      trap: new TrapSystem(),
+      movement: new MovementController(start.position, start.facing, collision),
       // Game time only flows while the stage is being played (not paused or finished).
       clock: new GameClock(() => stage.isRunning),
     };
   });
-  const { collision, interaction, movement, trap, clock } = systems;
+  const { collision, interaction, movement, clock } = systems;
 
-  // Keep collision/interaction in step with stage progress (key taken, door opened…).
+  // Keep collision/interaction in step with progress (key taken, door opened…).
   useEffect(() => {
-    const sync = () => syncWorldWithStage(level, stage.getSnapshot(), collision, interaction);
+    const sync = () => syncWorldWithState(level, stage.getState(), collision, interaction);
     sync();
     return stage.subscribe(sync);
   }, [level, stage, collision, interaction]);
 
-  const spawn = level.playerSpawn.position;
+  const spawn = movement.state.position;
+  const { theme } = level;
 
   return (
     <Canvas
@@ -80,17 +80,17 @@ export function GameScene({
       }}
       onCreated={onReady}
     >
-      <color attach="background" args={[BACKGROUND_COLOR]} />
-      {/* Fog fades the far end of the temple and hides the edge of the world. */}
-      <fog attach="fog" args={[BACKGROUND_COLOR, 18, 40]} />
+      <color attach="background" args={[theme.background]} />
+      {/* Fog fades the far end of the level and hides the edge of the world. */}
+      <fog attach="fog" args={[theme.background, theme.fog.near, theme.fog.far]} />
 
-      {/* Warm sky / dark ground ambient fill, plus one "sun" for shading direction. */}
-      <hemisphereLight args={["#fff1d6", "#3a2f22", 1.2]} />
-      <directionalLight position={[6, 12, 4]} intensity={2} color="#ffe2b0" />
+      {/* Sky / ground ambient fill, plus one "sun" for shading direction. */}
+      <hemisphereLight args={[theme.ambient.sky, theme.ambient.ground, theme.ambient.intensity]} />
+      <directionalLight position={[...theme.sun.position]} intensity={theme.sun.intensity} color={theme.sun.color} />
 
       <GameClockContext value={clock}>
         <Room level={level} />
-        <TriggerVisuals triggers={level.triggers} trap={trap} />
+        <TriggerVisuals triggers={level.triggers} stage={stage} />
         <Interactables items={level.interactables} interaction={interaction} stage={stage} />
 
         {/* Order matters: frame callbacks run in mount order (logic → drawing → camera). */}
@@ -101,7 +101,7 @@ export function GameScene({
           onFocusChange={onFocusChange}
           onInteract={onInteract}
         />
-        <StageController level={level} stage={stage} trap={trap} movement={movement} />
+        <StageController stage={stage} movement={movement} />
         <Player state={movement.state} />
         <CameraController target={movement.state.position} />
       </GameClockContext>

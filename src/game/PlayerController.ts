@@ -1,10 +1,10 @@
 import { Vector3 } from "three";
 
+import type { InteractionSystem } from "@/systems/InteractionSystem";
+import type { MovementController } from "@/systems/MovementController";
 import type { Interactable, JoystickVector, Vec2 } from "@/types/game";
 
 import { useGameFrame } from "./gameClock";
-import type { InteractionSystem } from "./InteractionSystem";
-import type { MovementController } from "./MovementController";
 import type { PlayerInput } from "./PlayerInput";
 
 // Reused every frame so the game loop allocates nothing.
