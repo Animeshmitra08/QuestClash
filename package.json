@@ -3,6 +3,7 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "dependencies": {
+    "@colyseus/sdk": "^0.18.5",
     "@expo/ui": "~57.0.25",
     "@react-three/fiber": "9.8.2",
     "expo": "~57.0.30",
@@ -60,7 +61,11 @@
     "testPathIgnorePatterns": [
       "/node_modules/",
       "/android/",
-      "/ios/"
+      "/ios/",
+      "/server/"
+    ],
+    "modulePathIgnorePatterns": [
+      "<rootDir>/server/"
     ]
   },
   "private": true

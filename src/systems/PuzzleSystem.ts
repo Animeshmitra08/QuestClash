@@ -1,5 +1,5 @@
 import type { PuzzleDefinition } from "@/types/game";
-import type { PuzzleEvent, PuzzleState, PuzzleStatus } from "@/types/state";
+import type { PlayerId, PuzzleEvent, PuzzleState, PuzzleStatus } from "@/types/state";
 
 import { nextState, type TransitionTable } from "./stateMachine";
 
@@ -13,7 +13,7 @@ export const PUZZLE_TRANSITIONS: TransitionTable<PuzzleStatus, PuzzleEvent> = {
   solved: {},
 };
 
-export const INITIAL_PUZZLE_STATE: PuzzleState = { status: "unsolved", wrongAttempts: 0 };
+export const INITIAL_PUZZLE_STATE: PuzzleState = { status: "unsolved", wrongAttempts: 0, solvedBy: null };
 
 /** Look up a puzzle by id. Throws for an unknown id, since that is a level-data bug. */
 export function getPuzzle(puzzles: readonly PuzzleDefinition[], id: string): PuzzleDefinition {
@@ -26,24 +26,31 @@ export function isCorrectAnswer(puzzle: PuzzleDefinition, optionIndex: number): 
   return optionIndex === puzzle.correctOptionIndex;
 }
 
-export interface AnswerOutcome {
-  state: PuzzleState;
-  /** null when the answer wasn't accepted at all (puzzle already solved). */
-  correct: boolean | null;
+/** An answer must be one of the puzzle's options; anything else is malformed, not "wrong". */
+export function isValidOption(puzzle: PuzzleDefinition, optionIndex: number): boolean {
+  return Number.isInteger(optionIndex) && optionIndex >= 0 && optionIndex < puzzle.options.length;
 }
 
-/** Apply an answer. Pure: returns the new puzzle state. */
+export type AnswerOutcome =
+  | { kind: "correct"; state: PuzzleState }
+  | { kind: "wrong"; state: PuzzleState }
+  /** Not applied: the puzzle is already solved, or the option doesn't exist. Nothing is counted. */
+  | { kind: "rejected"; reason: "alreadySolved" | "invalidAnswer" };
+
+/** Apply `playerId`'s answer. Pure: returns the new puzzle state. */
 export function answerPuzzle(
   puzzle: PuzzleDefinition,
   state: PuzzleState,
   optionIndex: number,
+  playerId: PlayerId,
 ): AnswerOutcome {
+  if (!isValidOption(puzzle, optionIndex)) return { kind: "rejected", reason: "invalidAnswer" };
+
   const correct = isCorrectAnswer(puzzle, optionIndex);
   const status = nextState(PUZZLE_TRANSITIONS, state.status, correct ? "answerCorrect" : "answerWrong");
-  if (status === null) return { state, correct: null };
+  if (status === null) return { kind: "rejected", reason: "alreadySolved" };
 
-  return {
-    state: { status, wrongAttempts: state.wrongAttempts + (correct ? 0 : 1) },
-    correct,
-  };
+  return correct
+    ? { kind: "correct", state: { ...state, status, solvedBy: playerId } }
+    : { kind: "wrong", state: { ...state, status, wrongAttempts: state.wrongAttempts + 1 } };
 }

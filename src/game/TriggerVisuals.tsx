@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef } from "react";
 import { Color, type Group, type InstancedMesh, type MeshStandardMaterial, Object3D } from "three";
 
 import { isConditionMet } from "@/systems/ObjectiveSystem";
-import type { StageManager } from "@/systems/StageManager";
+import type { MatchSource } from "@/session/MatchSource";
 import { HIDDEN_HEIGHT } from "@/systems/TrapSystem";
 import type { ExitTrigger, TrapTrigger, TriggerZone } from "@/types/game";
 import type { TrapState } from "@/types/state";
@@ -87,7 +87,7 @@ const PORTAL_LOCKED = new Color("#4a5a7a");
  * Stone archway with a portal against the north wall: glowing and pulsing when
  * the exit works, dim and still while its `requires` condition isn't met yet.
  */
-function ExitPortal({ zone, stage }: { zone: ExitTrigger; stage: StageManager }) {
+function ExitPortal({ zone, source }: { zone: ExitTrigger; source: MatchSource }) {
   const portalMaterialRef = useRef<MeshStandardMaterial>(null);
   const elapsed = useRef(0);
   const halfWidth = zone.size.x / 2;
@@ -98,7 +98,7 @@ function ExitPortal({ zone, stage }: { zone: ExitTrigger; stage: StageManager })
     elapsed.current += delta;
     const portal = portalMaterialRef.current;
     if (!portal) return;
-    const locked = zone.requires !== undefined && !isConditionMet(zone.requires, stage.getState());
+    const locked = zone.requires !== undefined && !isConditionMet(zone.requires, source.getState());
     portal.emissive.copy(locked ? PORTAL_LOCKED : PORTAL_OPEN);
     portal.emissiveIntensity = locked ? 0.35 : 1.2 + Math.sin(elapsed.current * 2) * 0.4;
   });
@@ -133,21 +133,21 @@ function ExitPortal({ zone, stage }: { zone: ExitTrigger; stage: StageManager })
 interface TriggerVisualsProps {
   triggers: TriggerZone[];
   /** Source of each trap's live state. */
-  stage: StageManager;
+  source: MatchSource;
 }
 
 /** Draws the trap and exit zones. Rendering only; StageManager decides what they do. */
-export function TriggerVisuals({ triggers, stage }: TriggerVisualsProps) {
+export function TriggerVisuals({ triggers, source }: TriggerVisualsProps) {
   return (
     <group>
       {triggers.map((zone) => {
         switch (zone.kind) {
           case "trap": {
-            const trap = stage.getTrap(zone.id);
+            const trap = source.getTrap(zone.id);
             return trap ? <SpikeTrap key={zone.id} zone={zone} trap={trap} /> : null;
           }
           case "exit":
-            return <ExitPortal key={zone.id} zone={zone} stage={stage} />;
+            return <ExitPortal key={zone.id} zone={zone} source={source} />;
         }
       })}
     </group>

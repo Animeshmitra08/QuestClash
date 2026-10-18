@@ -3,7 +3,7 @@ import type { Group, Mesh, MeshStandardMaterial } from "three";
 
 import { isDoorOpen, isPickupCollected, isPuzzleSolved } from "@/systems/gameState";
 import type { InteractionSystem } from "@/systems/InteractionSystem";
-import type { StageManager } from "@/systems/StageManager";
+import type { MatchSource } from "@/session/MatchSource";
 import type {
   DoorInteractable,
   InspectInteractable,
@@ -68,7 +68,7 @@ function FloatingMarker({
 interface ItemProps<T extends Interactable> {
   item: T;
   interaction: InteractionSystem;
-  stage: StageManager;
+  source: MatchSource;
 }
 
 /** Stone tablet with a glowing carving. */
@@ -101,7 +101,7 @@ function Tablet({ item, interaction }: ItemProps<InspectInteractable>) {
 }
 
 /** A floating, spinning key. Disappears once collected. */
-function KeyPickup({ item, interaction, stage }: ItemProps<PickupInteractable>) {
+function KeyPickup({ item, interaction, source }: ItemProps<PickupInteractable>) {
   const focus = useFocusAmount(interaction, item.id);
   const groupRef = useRef<Group>(null);
   const materialRef = useRef<MeshStandardMaterial>(null);
@@ -110,7 +110,7 @@ function KeyPickup({ item, interaction, stage }: ItemProps<PickupInteractable>) 
   useGameFrame((_, delta) => {
     const group = groupRef.current;
     if (!group) return;
-    group.visible = !isPickupCollected(stage.getState(), item.id);
+    group.visible = !isPickupCollected(source.getState(), item.id);
     if (!group.visible) return;
 
     elapsed.current += delta;
@@ -146,10 +146,10 @@ function KeyPickup({ item, interaction, stage }: ItemProps<PickupInteractable>) 
 }
 
 /** Pedestal with a sun disc. The disc lights up for good once the puzzle is solved. */
-function SunDial({ item, interaction, stage }: ItemProps<PuzzleInteractable>) {
+function SunDial({ item, interaction, source }: ItemProps<PuzzleInteractable>) {
   const focus = useFocusAmount(interaction, item.id);
   const discMaterialRef = useRef<MeshStandardMaterial>(null);
-  const isSolved = () => isPuzzleSolved(stage.getState(), item.puzzleId);
+  const isSolved = () => isPuzzleSolved(source.getState(), item.puzzleId);
 
   useGameFrame(() => {
     const disc = discMaterialRef.current;
@@ -177,7 +177,7 @@ function SunDial({ item, interaction, stage }: ItemProps<PuzzleInteractable>) {
 }
 
 /** Stone door with a sun emblem. Sinks into the floor once opened. */
-function Door({ item, interaction, stage }: ItemProps<DoorInteractable>) {
+function Door({ item, interaction, source }: ItemProps<DoorInteractable>) {
   const focus = useFocusAmount(interaction, item.id);
   const panelRef = useRef<Group>(null);
   const emblemMaterialRef = useRef<MeshStandardMaterial>(null);
@@ -188,7 +188,7 @@ function Door({ item, interaction, stage }: ItemProps<DoorInteractable>) {
     const panel = panelRef.current;
     if (!panel) return;
 
-    const isOpen = isDoorOpen(stage.getState(), item.id);
+    const isOpen = isDoorOpen(source.getState(), item.id);
     if (isOpen && openProgress.current < 1) {
       openProgress.current = Math.min(openProgress.current + delta / DOOR_OPEN_SECONDS, 1);
     }
@@ -222,15 +222,15 @@ function Door({ item, interaction, stage }: ItemProps<DoorInteractable>) {
 interface InteractablesProps {
   items: Interactable[];
   interaction: InteractionSystem;
-  stage: StageManager;
+  source: MatchSource;
 }
 
 /** Draws every usable object in the level. Rendering only; behaviour lives in StageManager. */
-export function Interactables({ items, interaction, stage }: InteractablesProps) {
+export function Interactables({ items, interaction, source }: InteractablesProps) {
   return (
     <group>
       {items.map((item) => {
-        const shared = { interaction, stage };
+        const shared = { interaction, source };
         switch (item.kind) {
           case "inspect":
             return <Tablet key={item.id} item={item} {...shared} />;

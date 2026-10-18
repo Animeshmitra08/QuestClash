@@ -1,23 +1,24 @@
+import type { MatchSource } from "@/session/MatchSource";
 import type { MovementController } from "@/systems/MovementController";
-import type { StageManager } from "@/systems/StageManager";
 
 import { useGameFrame } from "./gameClock";
 
 interface StageControllerProps {
-  stage: StageManager;
+  source: MatchSource;
   movement: MovementController;
 }
 
 /**
- * Runs one frame of stage rules (timer, traps, trigger zones) at the player's
- * position, and applies the one result the scene must handle: respawning.
+ * Hands the local player's body to the match once per frame and applies the one
+ * result the scene must handle: respawning. In single player the match runs its
+ * rules right here; online, the position goes to the server, which decides.
  * Mount it after PlayerController so it sees where the player moved this frame.
  * Renders nothing. Game time stops while paused (see gameClock).
  */
-export function StageController({ stage, movement }: StageControllerProps) {
+export function StageController({ source, movement }: StageControllerProps) {
   useGameFrame((_, dt) => {
-    const { respawnAt } = stage.update(dt, movement.state.position);
-    if (respawnAt) movement.reset(respawnAt.position, respawnAt.facing);
+    const respawn = source.frame(dt, movement.state);
+    if (respawn) movement.reset(respawn.position, respawn.facing);
   });
 
   return null;

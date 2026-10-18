@@ -2,19 +2,23 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 interface PauseMenuProps {
   onResume: () => void;
-  onRestart: () => void;
+  /** Omitted online, where only the host can restart (from the end-of-level screen). */
+  onRestart?: () => void;
   onQuit: () => void;
+  /** Online matches keep running behind the menu; say so. */
+  online?: boolean;
 }
 
-/** Shown while the game is paused. The game world and timer are frozen behind it. */
-export function PauseMenu({ onResume, onRestart, onQuit }: PauseMenuProps) {
+/** Shown while the game is paused (single player), or as a menu over a running online match. */
+export function PauseMenu({ onResume, onRestart, onQuit, online = false }: PauseMenuProps) {
   return (
     <View style={styles.backdrop}>
       <View style={styles.panel}>
-        <Text style={styles.title}>Paused</Text>
-        <MenuButton label="Resume" onPress={onResume} primary />
-        <MenuButton label="Restart stage" onPress={onRestart} />
-        <MenuButton label="Quit to menu" onPress={onQuit} />
+        <Text style={styles.title}>{online ? "Menu" : "Paused"}</Text>
+        {online && <Text style={styles.note}>The match keeps going while this menu is open.</Text>}
+        <MenuButton label={online ? "Back to the game" : "Resume"} onPress={onResume} primary />
+        {onRestart && <MenuButton label="Restart stage" onPress={onRestart} />}
+        <MenuButton label={online ? "Leave match" : "Quit to menu"} onPress={onQuit} />
       </View>
     </View>
   );
@@ -63,6 +67,12 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     textAlign: "center",
     marginBottom: 6,
+  },
+  note: {
+    color: "#c9b99c",
+    fontSize: 13,
+    textAlign: "center",
+    marginTop: -4,
   },
   button: {
     backgroundColor: "#f2c230",

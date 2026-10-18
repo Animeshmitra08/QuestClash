@@ -1,10 +1,10 @@
 import type { DoorInteractable, DoorRequirement } from "@/types/game";
-import type { DoorBlockReason, DoorEvent, DoorStatus, GameState } from "@/types/state";
+import type { DoorBlockReason, DoorEvent, DoorStatus, MatchState, PlayerId } from "@/types/state";
 
 import { hasItem } from "./InventorySystem";
 import { nextState, type TransitionTable } from "./stateMachine";
 
-/** locked --unlock--> open. An open door stays open. */
+/** locked --unlock--> open. An open door stays open, for everyone. */
 export const DOOR_TRANSITIONS: TransitionTable<DoorStatus, DoorEvent> = {
   locked: { unlock: "open" },
   open: {},
@@ -15,12 +15,16 @@ export type DoorCheck =
   | { canOpen: false; reason: "alreadyOpen" }
   | { canOpen: false; reason: "requirement"; requirement: DoorRequirement };
 
-export function isRequirementMet(requirement: DoorRequirement, state: GameState): boolean {
+/**
+ * Is `requirement` met for `playerId`? Item requirements need the item in *that
+ * player's* inventory (keys are personal); puzzle requirements are shared.
+ */
+export function isRequirementMet(requirement: DoorRequirement, state: MatchState, playerId: PlayerId): boolean {
   switch (requirement.kind) {
     case "item":
-      return hasItem(state.inventory, requirement.itemId);
+      return hasItem(state.players[playerId]?.inventory ?? [], requirement.itemId);
     case "puzzle":
-      return state.puzzles[requirement.puzzleId]?.status === "solved";
+      return state.world.puzzles[requirement.puzzleId]?.status === "solved";
   }
 }
 
@@ -29,13 +33,13 @@ export function blockReason(requirement: DoorRequirement): DoorBlockReason {
   return requirement.kind === "item" ? "missingItem" : "puzzleUnsolved";
 }
 
-/** Can this door open right now? Requirements are checked in the order the level lists them. */
-export function checkDoor(door: DoorInteractable, state: GameState): DoorCheck {
-  const status = state.doors[door.id] ?? "locked";
+/** Can `playerId` open this door right now? Requirements are checked in the order the level lists them. */
+export function checkDoor(door: DoorInteractable, state: MatchState, playerId: PlayerId): DoorCheck {
+  const status = state.world.doors[door.id]?.status ?? "locked";
   if (nextState(DOOR_TRANSITIONS, status, "unlock") === null) {
     return { canOpen: false, reason: "alreadyOpen" };
   }
-  const unmet = door.requirements.find((requirement) => !isRequirementMet(requirement, state));
+  const unmet = door.requirements.find((requirement) => !isRequirementMet(requirement, state, playerId));
   return unmet ? { canOpen: false, reason: "requirement", requirement: unmet } : { canOpen: true };
 }
 

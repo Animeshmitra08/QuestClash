@@ -5,17 +5,23 @@ import type { PuzzleDefinition } from "@/types/game";
 
 interface PuzzleDialogProps {
   puzzle: PuzzleDefinition;
-  /** Returns true if the answer was correct; the parent then closes the dialog. */
-  onAnswer: (optionIndex: number) => boolean;
+  /** Resolves true if the answer was correct; the parent then closes the dialog. Online this waits for the server. */
+  onAnswer: (optionIndex: number) => Promise<boolean>;
   onClose: () => void;
 }
 
 /** Multiple-choice puzzle panel. Wrong answers show a hint and let the player try again. */
 export function PuzzleDialog({ puzzle, onAnswer, onClose }: PuzzleDialogProps) {
   const [showHint, setShowHint] = useState(false);
+  // One answer at a time: online, a second tap while waiting would be a second answer.
+  const [checking, setChecking] = useState(false);
 
-  const choose = (index: number) => {
-    if (!onAnswer(index)) setShowHint(true);
+  const choose = async (index: number) => {
+    if (checking) return;
+    setChecking(true);
+    const correct = await onAnswer(index);
+    setChecking(false);
+    if (!correct) setShowHint(true);
   };
 
   return (
@@ -28,8 +34,9 @@ export function PuzzleDialog({ puzzle, onAnswer, onClose }: PuzzleDialogProps) {
           {puzzle.options.map((option, index) => (
             <Pressable
               key={option}
-              style={({ pressed }) => [styles.option, pressed && styles.optionPressed]}
+              style={({ pressed }) => [styles.option, (pressed || checking) && styles.optionPressed]}
               onPress={() => choose(index)}
+              disabled={checking}
               accessibilityRole="button"
             >
               <Text style={styles.optionText}>{option}</Text>

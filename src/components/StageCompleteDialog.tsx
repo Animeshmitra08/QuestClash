@@ -6,10 +6,15 @@ interface StageCompleteDialogProps {
   levelName: string;
   elapsedSeconds: number;
   score: ScoreBreakdown;
-  onRestart: () => void;
+  /** Omitted when this player can't restart (online, not the host). */
+  onRestart?: () => void;
   /** Shown as the main button when there is a next level. */
   onNextLevel?: () => void;
   onExit: () => void;
+  /** Online, for everyone but the host: who decides what happens next. */
+  waitingNote?: string;
+  /** Label for the exit button (e.g. "Leave room" online). */
+  exitLabel?: string;
 }
 
 const MAX_STARS = 3;
@@ -22,6 +27,8 @@ export function StageCompleteDialog({
   onRestart,
   onNextLevel,
   onExit,
+  waitingNote,
+  exitLabel = "Main menu",
 }: StageCompleteDialogProps) {
   return (
     <View style={styles.backdrop}>
@@ -62,21 +69,24 @@ export function StageCompleteDialog({
               <Text style={styles.buttonText}>Next level</Text>
             </Pressable>
           )}
-          <Pressable
-            style={({ pressed }) => [styles.button, onNextLevel && styles.secondary, pressed && styles.pressed]}
-            onPress={onRestart}
-            accessibilityRole="button"
-          >
-            <Text style={[styles.buttonText, onNextLevel && styles.secondaryText]}>Play again</Text>
-          </Pressable>
+          {onRestart && (
+            <Pressable
+              style={({ pressed }) => [styles.button, onNextLevel && styles.secondary, pressed && styles.pressed]}
+              onPress={onRestart}
+              accessibilityRole="button"
+            >
+              <Text style={[styles.buttonText, onNextLevel && styles.secondaryText]}>Play again</Text>
+            </Pressable>
+          )}
           <Pressable
             style={({ pressed }) => [styles.button, styles.secondary, pressed && styles.pressed]}
             onPress={onExit}
             accessibilityRole="button"
           >
-            <Text style={[styles.buttonText, styles.secondaryText]}>Main menu</Text>
+            <Text style={[styles.buttonText, styles.secondaryText]}>{exitLabel}</Text>
           </Pressable>
         </View>
+        {waitingNote && <Text style={styles.waiting}>{waitingNote}</Text>}
       </View>
     </View>
   );
@@ -105,6 +115,13 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: "800",
     textAlign: "center",
+  },
+  waiting: {
+    color: "#c9b99c",
+    fontSize: 13,
+    fontStyle: "italic",
+    textAlign: "center",
+    marginTop: 10,
   },
   stars: {
     color: "#f2c230",

@@ -1,16 +1,39 @@
 import { TEMPLE_IDS, templeLevel } from "@/levels/temple";
 import { checkDoor } from "@/systems/DoorSystem";
-import { createInitialGameState } from "@/systems/gameState";
-import { interactionRules, runInteraction } from "@/systems/interactionRules";
+import { createInitialMatchState, hasRead, isInspected, withPlayer } from "@/systems/gameState";
+import { type InteractionOutcome, interactionRules, runInteraction } from "@/systems/interactionRules";
 import { addItem, hasItem, MAX_INVENTORY_SLOTS, removeItem } from "@/systems/InventorySystem";
+import { addPlayer } from "@/systems/PlayerRegistry";
 import { answerPuzzle, getPuzzle, INITIAL_PUZZLE_STATE } from "@/systems/PuzzleSystem";
 import type { DoorInteractable, Interactable, ItemDefinition } from "@/types/game";
-import type { GameState } from "@/types/state";
+import type { MatchState, PuzzleState } from "@/types/state";
 
 const byId = (id: string) => templeLevel.interactables.find((item) => item.id === id) as Interactable;
 const door = byId(TEMPLE_IDS.door) as DoorInteractable;
 const puzzle = getPuzzle(templeLevel.puzzles, TEMPLE_IDS.sunPuzzle);
 const key: ItemDefinition = { id: TEMPLE_IDS.bronzeKeyItem, name: "Bronze Key" };
+const SOLVED: PuzzleState = { status: "solved", wrongAttempts: 0, solvedBy: "ana" };
+
+/** A match with the given players registered (no positions; these are pure rule tests). */
+function match(...ids: string[]): MatchState {
+  let state = createInitialMatchState(templeLevel);
+  for (const id of ids) {
+    const joined = addPlayer(state, { id, name: id.toUpperCase() }, null);
+    if (!joined.ok) throw new Error(joined.reason);
+    state = joined.state;
+  }
+  return state;
+}
+const withSolvedDial = (state: MatchState): MatchState => ({
+  ...state,
+  world: { ...state.world, puzzles: { ...state.world.puzzles, [TEMPLE_IDS.sunPuzzle]: SOLVED } },
+});
+const run = (target: Interactable, state: MatchState, actor: string) =>
+  runInteraction(target, { state, level: templeLevel, actor });
+function accepted(outcome: InteractionOutcome) {
+  if (!outcome.accepted) throw new Error(`rejected: ${outcome.reason}`);
+  return outcome;
+}
 
 describe("InventorySystem", () => {
   it("adds, finds and removes items without changing the original list", () => {
@@ -34,17 +57,21 @@ describe("InventorySystem", () => {
 });
 
 describe("PuzzleSystem", () => {
-  it("counts wrong answers and solves on the right one", () => {
-    const wrong = answerPuzzle(puzzle, INITIAL_PUZZLE_STATE, 0);
-    expect(wrong).toEqual({ correct: false, state: { status: "unsolved", wrongAttempts: 1 } });
+  it("counts wrong answers and records who solved it", () => {
+    const wrong = answerPuzzle(puzzle, INITIAL_PUZZLE_STATE, 0, "ana");
+    expect(wrong).toEqual({ kind: "wrong", state: { status: "unsolved", wrongAttempts: 1, solvedBy: null } });
+    if (wrong.kind !== "wrong") return;
 
-    const right = answerPuzzle(puzzle, wrong.state, puzzle.correctOptionIndex);
-    expect(right).toEqual({ correct: true, state: { status: "solved", wrongAttempts: 1 } });
+    const right = answerPuzzle(puzzle, wrong.state, puzzle.correctOptionIndex, "bo");
+    expect(right).toEqual({ kind: "correct", state: { status: "solved", wrongAttempts: 1, solvedBy: "bo" } });
   });
 
-  it("does not accept answers once solved", () => {
-    const solved = { status: "solved", wrongAttempts: 0 } as const;
-    expect(answerPuzzle(puzzle, solved, 0)).toEqual({ correct: null, state: solved });
+  it("rejects answers once solved, without counting them", () => {
+    expect(answerPuzzle(puzzle, SOLVED, 0, "bo")).toEqual({ kind: "rejected", reason: "alreadySolved" });
+  });
+
+  it.each([-1, 4, 1.5, Number.NaN])("rejects option %p as invalid, without counting it", (option) => {
+    expect(answerPuzzle(puzzle, INITIAL_PUZZLE_STATE, option, "ana")).toEqual({ kind: "rejected", reason: "invalidAnswer" });
   });
 
   it("throws for an unknown puzzle id", () => {
@@ -53,42 +80,41 @@ describe("PuzzleSystem", () => {
 });
 
 describe("DoorSystem", () => {
-  const base = createInitialGameState(templeLevel);
-  const solvedPuzzles = { ...base.puzzles, [TEMPLE_IDS.sunPuzzle]: { status: "solved", wrongAttempts: 0 } } as const;
-
-  it("checks requirements in the order the level lists them (item, then puzzle)", () => {
+  it("checks requirements in the order the level lists them, against the actor's own items", () => {
     const [itemRequirement, puzzleRequirement] = door.requirements;
-    expect(checkDoor(door, base)).toEqual({ canOpen: false, reason: "requirement", requirement: itemRequirement });
-    expect(checkDoor(door, { ...base, puzzles: solvedPuzzles })).toEqual({
-      canOpen: false,
-      reason: "requirement",
-      requirement: itemRequirement,
-    });
-    expect(checkDoor(door, { ...base, inventory: [key] })).toEqual({
-      canOpen: false,
-      reason: "requirement",
-      requirement: puzzleRequirement,
-    });
-    expect(checkDoor(door, { ...base, inventory: [key], puzzles: solvedPuzzles })).toEqual({ canOpen: true });
+    const base = match("ana");
+    const blocked = (requirement: unknown) => ({ canOpen: false, reason: "requirement", requirement });
+
+    expect(checkDoor(door, base, "ana")).toEqual(blocked(itemRequirement));
+    expect(checkDoor(door, withSolvedDial(base), "ana")).toEqual(blocked(itemRequirement));
+    const anaHasKey = withPlayer(base, "ana", { inventory: [key] });
+    expect(checkDoor(door, anaHasKey, "ana")).toEqual(blocked(puzzleRequirement));
+    expect(checkDoor(door, withSolvedDial(anaHasKey), "ana")).toEqual({ canOpen: true });
+  });
+
+  it("keys are personal: a teammate's key doesn't open the door for you", () => {
+    const state = withSolvedDial(withPlayer(match("ana", "bo"), "ana", { inventory: [key] }));
+    expect(checkDoor(door, state, "bo")).toMatchObject({ canOpen: false, reason: "requirement" });
+    expect(checkDoor(door, state, "ana")).toEqual({ canOpen: true });
   });
 
   it("a door with no requirements opens on use; a non-consumed item is kept", () => {
-    const free: DoorInteractable = { ...door, requirements: [] };
-    expect(checkDoor(free, base)).toEqual({ canOpen: true });
+    const base = match("ana");
+    expect(checkDoor({ ...door, requirements: [] }, base, "ana")).toEqual({ canOpen: true });
 
     const keepsKey: DoorInteractable = {
       ...door,
       requirements: [{ kind: "item", itemId: key.id, consume: false, blockedMessage: { title: "", message: "" } }],
     };
-    const outcome = runInteraction(keepsKey, { ...base, inventory: [key] }, templeLevel);
-    expect(outcome.state.doors[door.id]).toBe("open");
-    expect(outcome.state.inventory).toEqual([key]);
+    const outcome = accepted(run(keepsKey, withPlayer(base, "ana", { inventory: [key] }), "ana"));
+    expect(outcome.state.world.doors[door.id]).toEqual({ status: "open", openedBy: "ana" });
+    expect(outcome.state.players.ana.inventory).toEqual([key]);
     expect(outcome.events.map((e) => e.type)).toEqual(["doorOpened"]);
   });
 
-  it("reports an open door as already open", () => {
-    const open: GameState = { ...base, doors: { [door.id]: "open" } };
-    expect(checkDoor(door, open)).toEqual({ canOpen: false, reason: "alreadyOpen" });
+  it("reports an open door as already open, for everyone", () => {
+    const open: MatchState = { ...match("ana"), world: { ...match("ana").world, doors: { [door.id]: { status: "open", openedBy: "bo" } } } };
+    expect(checkDoor(door, open, "ana")).toEqual({ canOpen: false, reason: "alreadyOpen" });
   });
 });
 
@@ -100,51 +126,61 @@ describe("interaction rules", () => {
   });
 
   it("never changes the state it is given", () => {
-    const state = createInitialGameState(templeLevel);
+    const state = match("ana", "bo");
     const before = JSON.stringify(state);
-    for (const item of templeLevel.interactables) runInteraction(item, state, templeLevel);
+    for (const item of templeLevel.interactables) run(item, state, "ana");
     expect(JSON.stringify(state)).toBe(before);
   });
 
-  it("door: shows the message for the missing requirement", () => {
-    const outcome = runInteraction(door, createInitialGameState(templeLevel), templeLevel);
-    expect(outcome.result).toEqual({ type: "message", ...door.requirements[0].blockedMessage });
-    expect(outcome.events).toEqual([{ type: "doorBlocked", doorId: door.id, reason: "missingItem" }]);
+  it("clues are personal: reading one only marks it read for that player", () => {
+    const outcome = accepted(run(byId(TEMPLE_IDS.tablet), match("ana", "bo"), "ana"));
+    expect(hasRead(outcome.state, "ana", TEMPLE_IDS.tablet)).toBe(true);
+    expect(hasRead(outcome.state, "bo", TEMPLE_IDS.tablet)).toBe(false);
+    expect(isInspected(outcome.state, TEMPLE_IDS.tablet)).toBe(true); // the team objective counts it
   });
 
-  it("door: opening uses up the key", () => {
-    const base = createInitialGameState(templeLevel);
-    const ready: GameState = {
-      ...base,
-      inventory: [key],
-      puzzles: { ...base.puzzles, [TEMPLE_IDS.sunPuzzle]: { status: "solved", wrongAttempts: 0 } },
-    };
-    const outcome = runInteraction(door, ready, templeLevel);
-    expect(outcome.state.doors[door.id]).toBe("open");
-    expect(outcome.state.inventory).toEqual([]);
+  it("pickup: the world object is shared, the item goes to the collector only", () => {
+    const outcome = accepted(run(byId(TEMPLE_IDS.key), match("ana", "bo"), "bo"));
+    expect(outcome.state.world.collectedPickups[TEMPLE_IDS.key]).toBe("bo");
+    expect(outcome.state.players.bo.inventory).toEqual([key]);
+    expect(outcome.state.players.ana.inventory).toEqual([]);
+    expect(outcome.notices).toEqual([
+      { to: "bo", text: "You found the Bronze Key!", tone: "success" },
+      { to: "ana", text: "BO found the Bronze Key.", tone: "info" },
+    ]);
+  });
+
+  it("pickup: a second collector is rejected and told who has it", () => {
+    const taken = accepted(run(byId(TEMPLE_IDS.key), match("ana", "bo"), "bo")).state;
+    const second = run(byId(TEMPLE_IDS.key), taken, "ana");
+    expect(second).toMatchObject({ accepted: false, reason: "alreadyCollected" });
+    expect(second.notices[0].text).toBe("BO already took the Bronze Key.");
+  });
+
+  it("pickup: a full inventory leaves the item in the world", () => {
+    const full = withPlayer(match("ana"), "ana", {
+      inventory: Array.from({ length: MAX_INVENTORY_SLOTS }, (_, i) => ({ id: `item-${i}`, name: "x" })),
+    });
+    expect(run(byId(TEMPLE_IDS.key), full, "ana")).toMatchObject({ accepted: false, reason: "inventoryFull" });
+  });
+
+  it("door: shows the message for the missing requirement", () => {
+    const outcome = accepted(run(door, match("ana"), "ana"));
+    expect(outcome.result).toEqual({ type: "message", ...door.requirements[0].blockedMessage });
+    expect(outcome.events).toEqual([{ type: "doorBlocked", playerId: "ana", doorId: door.id, reason: "missingItem" }]);
+  });
+
+  it("door: opening uses up the opener's key and records who opened it", () => {
+    const ready = withSolvedDial(withPlayer(match("ana"), "ana", { inventory: [key] }));
+    const outcome = accepted(run(door, ready, "ana"));
+    expect(outcome.state.world.doors[door.id]).toEqual({ status: "open", openedBy: "ana" });
+    expect(outcome.state.players.ana.inventory).toEqual([]);
     expect(outcome.events.map((e) => e.type)).toEqual(["itemUsed", "doorOpened"]);
   });
 
   it("puzzle object: opens the puzzle until solved, then shows the solved message", () => {
     const dial = byId(TEMPLE_IDS.sunDial);
-    const base = createInitialGameState(templeLevel);
-    expect(runInteraction(dial, base, templeLevel).result).toEqual({ type: "puzzle", puzzle });
-
-    const solved: GameState = {
-      ...base,
-      puzzles: { ...base.puzzles, [TEMPLE_IDS.sunPuzzle]: { status: "solved", wrongAttempts: 0 } },
-    };
-    expect(runInteraction(dial, solved, templeLevel).result.type).toBe("message");
-  });
-
-  it("pickup: a full inventory leaves the item in the world", () => {
-    const base = createInitialGameState(templeLevel);
-    const full: GameState = {
-      ...base,
-      inventory: Array.from({ length: MAX_INVENTORY_SLOTS }, (_, i) => ({ id: `item-${i}`, name: "x" })),
-    };
-    const outcome = runInteraction(byId(TEMPLE_IDS.key), full, templeLevel);
-    expect(outcome.state).toBe(full);
-    expect(outcome.notice?.text).toMatch(/can't carry/);
+    expect(accepted(run(dial, match("ana"), "ana")).result).toEqual({ type: "puzzle", puzzle });
+    expect(accepted(run(dial, withSolvedDial(match("ana")), "ana")).result.type).toBe("message");
   });
 });

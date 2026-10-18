@@ -1,34 +1,56 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
+import type { FailReason } from "@/types/state";
+
 interface StageFailedDialogProps {
   levelName: string;
-  onRestart: () => void;
+  reason: FailReason;
+  /** Omitted when this player can't restart (online, not the host). */
+  onRestart?: () => void;
   onExit: () => void;
+  /** Online, for everyone but the host: who decides what happens next. */
+  waitingNote?: string;
+  exitLabel?: string;
 }
 
-/** Shown when a timed level runs out of time. */
-export function StageFailedDialog({ levelName, onRestart, onExit }: StageFailedDialogProps) {
+const TITLES: Record<FailReason, string> = {
+  timeUp: "Out of time",
+  allEliminated: "Everyone is out",
+};
+
+/** Shown when a match fails: time ran out, or every player was eliminated. */
+export function StageFailedDialog({
+  levelName,
+  reason,
+  onRestart,
+  onExit,
+  waitingNote,
+  exitLabel = "Main menu",
+}: StageFailedDialogProps) {
   return (
     <View style={styles.backdrop}>
       <View style={styles.panel}>
-        <Text style={styles.title}>Out of time</Text>
+        <Text style={styles.title}>{TITLES[reason]}</Text>
         <Text style={styles.subtitle}>{levelName} has sealed itself again.</Text>
         <View style={styles.buttons}>
-          <Pressable
-            style={({ pressed }) => [styles.button, pressed && styles.pressed]}
-            onPress={onRestart}
-            accessibilityRole="button"
-          >
-            <Text style={styles.buttonText}>Try again</Text>
-          </Pressable>
+          {onRestart && (
+            <Pressable
+              style={({ pressed }) => [styles.button, pressed && styles.pressed]}
+              onPress={onRestart}
+              accessibilityRole="button"
+            >
+              <Text style={styles.buttonText}>Try again</Text>
+            </Pressable>
+          )}
           <Pressable
             style={({ pressed }) => [styles.button, styles.secondary, pressed && styles.pressed]}
             onPress={onExit}
             accessibilityRole="button"
           >
-            <Text style={[styles.buttonText, styles.secondaryText]}>Main menu</Text>
+            <Text style={[styles.buttonText, styles.secondaryText]}>{exitLabel}</Text>
           </Pressable>
         </View>
+        {waitingNote && <Text style={styles.waiting}>{waitingNote}</Text>}
       </View>
     </View>
   );
@@ -60,6 +82,13 @@ const styles = StyleSheet.create({
     color: "#f2e6d0",
     fontSize: 15,
     marginTop: 4,
+  },
+  waiting: {
+    color: "#c9b99c",
+    fontSize: 13,
+    fontStyle: "italic",
+    textAlign: "center",
+    marginTop: 12,
   },
   buttons: {
     flexDirection: "row",

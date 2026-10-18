@@ -5,9 +5,22 @@ import { LevelErrorScreen } from "@/components/LevelErrorScreen";
 import { LevelSession } from "@/components/LevelSession";
 import { FIRST_LEVEL_ID } from "@/levels/catalog";
 import { loadLevel } from "@/levels/levelLoader";
+import { LocalMatch } from "@/session/LocalMatch";
+import type { LevelDefinition } from "@/types/game";
+
+/** One single-player attempt: a fresh local match, created once for this mount. */
+function LocalAttempt(props: {
+  level: LevelDefinition;
+  onRestart: () => void;
+  onNextLevel?: () => void;
+  onQuit: () => void;
+}) {
+  const [source] = useState(() => new LocalMatch(props.level));
+  return <LevelSession source={source} onRestart={props.onRestart} onNextLevel={props.onNextLevel} onQuit={props.onQuit} />;
+}
 
 /**
- * Plays a level: /game?level=<id> (defaults to the first level).
+ * Plays a level on this device: /game?level=<id> (defaults to the first level).
  * Loads and checks the level before anything is created for it, and handles
  * restarting and moving on to the next level.
  */
@@ -37,7 +50,7 @@ export default function GameScreen() {
     : undefined;
 
   return (
-    <LevelSession
+    <LocalAttempt
       key={`${level.id}#${attempt}`}
       level={level}
       onRestart={restart}

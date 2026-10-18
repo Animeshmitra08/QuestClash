@@ -18,9 +18,18 @@ const IDLE_BREATH_SPEED = 2.2;
 const IDLE_BREATH_AMOUNT = 0.02;
 const INTERACT_PULSE_SECONDS = 0.35;
 
+/** Body colour per player slot (0–4). Slot 0 keeps the original blue. */
+const SLOT_COLORS = ["#2f6fb3", "#c0392b", "#2e9e5b", "#8e44ad", "#d9822b"] as const;
+
+export function playerColor(slot: number): string {
+  return SLOT_COLORS[slot % SLOT_COLORS.length];
+}
+
 interface PlayerProps {
   /** Read every frame; never copied into React state. */
   state: PlayerState;
+  /** Body colour, so players can tell each other apart. */
+  color: string;
 }
 
 /**
@@ -30,7 +39,7 @@ interface PlayerProps {
  * Each frame it copies position and facing from `state` onto the 3D objects and
  * plays a procedural idle/walk animation. It never changes `state` itself.
  */
-export function Player({ state }: PlayerProps) {
+export function Player({ state, color }: PlayerProps) {
   const rootRef = useRef<Group>(null);
   const bodyRef = useRef<Group>(null);
   const pulseRef = useRef<Mesh>(null);
@@ -88,7 +97,7 @@ export function Player({ state }: PlayerProps) {
       <group ref={bodyRef}>
         <mesh position={[0, BODY_CENTER_Y, 0]}>
           <capsuleGeometry args={[PLAYER_RADIUS, BODY_LENGTH, 6, 16]} />
-          <meshStandardMaterial color="#2f6fb3" roughness={0.6} />
+          <meshStandardMaterial color={color} roughness={0.6} />
         </mesh>
 
         <mesh position={[0, HEAD_Y, 0]}>

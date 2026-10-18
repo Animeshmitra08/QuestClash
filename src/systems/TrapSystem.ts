@@ -58,7 +58,7 @@ export class TrapSystem implements TrapState {
 
   constructor(
     private readonly timing: TrapTiming,
-    startOffset = 0,
+    private readonly startOffset = 0,
   ) {
     this.time = startOffset % cycleLength(timing);
     this.apply();
@@ -66,6 +66,15 @@ export class TrapSystem implements TrapState {
 
   update(dt: number) {
     this.time = (this.time + dt) % cycleLength(this.timing);
+    this.apply();
+  }
+
+  /**
+   * Jump to where the trap is `matchSeconds` into the match. An online client uses
+   * this to keep its copy of a trap (for drawing) in step with the server's clock.
+   */
+  setMatchTime(matchSeconds: number) {
+    this.time = (this.startOffset + matchSeconds) % cycleLength(this.timing);
     this.apply();
   }
 

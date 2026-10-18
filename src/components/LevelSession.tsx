@@ -1,5 +1,5 @@
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { ActivityIndicator, AppState, BackHandler, StyleSheet, Text, View } from "react-native";
 
 import { DamageFlash } from "@/components/DamageFlash";
@@ -14,111 +14,149 @@ import { StageCompleteDialog } from "@/components/StageCompleteDialog";
 import { StageFailedDialog } from "@/components/StageFailedDialog";
 import { GameScene } from "@/game/GameScene";
 import { PlayerInput } from "@/game/PlayerInput";
-import { useGameState } from "@/hooks/useGameState";
+import type { MatchSource } from "@/session/MatchSource";
 import { AudioManager } from "@/systems/AudioManager";
 import { getObjectiveProgress } from "@/systems/ObjectiveSystem";
 import { calculateScore, resolveScoring } from "@/systems/ScoreSystem";
-import { StageManager } from "@/systems/StageManager";
-import type { Interactable, LevelDefinition } from "@/types/game";
+import type { Interactable } from "@/types/game";
 import type { InteractionResult } from "@/types/state";
 
 /** A panel opened by using an object (message or puzzle). */
 type OpenDialog = Exclude<InteractionResult, { type: "none" }>;
 
 interface LevelSessionProps {
-  /** A level that has already passed the level loader's checks. */
-  level: LevelDefinition;
-  onRestart: () => void;
-  /** Present only if the level has a next level. */
+  /** The match to play: local (single player) or online. Created by the screen; one per attempt. */
+  source: MatchSource;
+  /** Omitted online for everyone but the host. */
+  onRestart?: () => void;
+  /** Present only if the level has a next level (and, online, for the host). */
   onNextLevel?: () => void;
   onQuit: () => void;
+  /** Online: a connection problem to show over the game ("Reconnecting…"), or null. */
+  connectionNotice?: string | null;
+  /** Online, not the host: shown on the end-of-level screens. */
+  waitingNote?: string;
 }
 
 /**
- * One attempt at one level: the 3D scene plus HUD, dialogs and menus.
- * Everything here belongs to this attempt; restarting mounts a fresh session.
+ * One attempt at one level: the 3D scene plus HUD, dialogs and menus. Works the
+ * same for single player and online: everything goes through the MatchSource.
  */
-export function LevelSession({ level, onRestart, onNextLevel, onQuit }: LevelSessionProps) {
+export function LevelSession({ source, onRestart, onNextLevel, onQuit, connectionNotice, waitingNote }: LevelSessionProps) {
+  const { level } = source;
   const [input] = useState(() => new PlayerInput());
-  const [stage] = useState(() => new StageManager(level));
   const [audio] = useState(() => new AudioManager());
-  const game = useGameState(stage);
+  const game = useSyncExternalStore(source.subscribe, source.getState);
+  // The local player's personal state: inventory, pop-ups, hits.
+  const me = game.players[source.localPlayerId];
 
   const [sceneReady, setSceneReady] = useState(false);
   const [focused, setFocused] = useState<Interactable | null>(null);
   const [dialog, setDialog] = useState<OpenDialog | null>(null);
+  // Online there's no pause: the menu opens over the running match.
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const paused = game.status === "paused";
+  const showMenu = source.canPause ? paused : menuOpen;
   const finished = game.status === "completed" || game.status === "failed";
-  const inputLocked = dialog !== null || game.status !== "playing";
+  const meActive = me?.status === "active";
+  const inputLocked = dialog !== null || showMenu || game.status !== "playing" || !meActive;
   const score = calculateScore(game, resolveScoring(level));
+
+  const openMenu = () => (source.canPause ? source.pause() : setMenuOpen(true));
+  const closeMenu = () => (source.canPause ? source.resume() : setMenuOpen(false));
 
   // The joystick and USE button are ignored while any panel is open.
   useEffect(() => {
     input.setLocked(inputLocked);
   }, [input, inputLocked]);
 
-  // Pause automatically when the app goes to the background (call, home button…).
+  // Single player pauses when the app goes to the background (call, home button…).
   useEffect(() => {
+    if (!source.canPause) return;
     const subscription = AppState.addEventListener("change", (state) => {
-      if (state !== "active") stage.pause();
+      if (state !== "active") source.pause();
     });
     return () => subscription.remove();
-  }, [stage]);
+  }, [source]);
 
   // Sounds follow game events.
-  useEffect(() => audio.attach(stage), [audio, stage]);
+  useEffect(() => audio.attach(source), [audio, source]);
   useEffect(() => () => audio.dispose(), [audio]);
 
-  // Android back button: close the open panel, or toggle pause, instead of leaving mid-level.
+  // Android back button: close the open panel, or toggle the menu, instead of leaving mid-level.
   useEffect(() => {
     const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
-      if (finished) return false; // default behaviour: back to the start screen
+      if (finished) return false; // default behaviour: back to the previous screen
       if (dialog) setDialog(null);
-      else if (paused) stage.resume();
-      else stage.pause();
+      else if (showMenu) closeMenu();
+      else openMenu();
       return true;
     });
     return () => subscription.remove();
-  }, [finished, dialog, paused, stage]);
+  });
 
-  const handleInteract = (target: Interactable) => {
-    const result = stage.interact(target);
-    if (result.type !== "none") setDialog(result);
+  const handleInteract = async (target: Interactable) => {
+    const outcome = await source.dispatch({ type: "interact", targetId: target.id });
+    if (outcome.accepted && outcome.result.type !== "none") setDialog(outcome.result);
   };
+
+  const answerPuzzle = async (puzzleId: string, optionIndex: number) => {
+    const outcome = await source.dispatch({ type: "submitPuzzleAnswer", puzzleId, optionIndex });
+    const correct = outcome.accepted && outcome.correct === true;
+    // Close on success, or if someone else solved it in the meantime.
+    if (correct || (!outcome.accepted && outcome.reason === "alreadySolved")) setDialog(null);
+    return correct;
+  };
+
+  const exitLabel = source.online ? "Leave room" : "Main menu";
 
   return (
     <View style={[styles.container, { backgroundColor: level.theme.background }]}>
       <StatusBar hidden />
 
-      <SceneErrorBoundary onRetry={onRestart}>
+      <SceneErrorBoundary onRetry={onRestart ?? onQuit}>
         <GameScene
-          level={level}
+          source={source}
           input={input}
-          stage={stage}
           onReady={() => setSceneReady(true)}
           onFocusChange={setFocused}
           onInteract={handleInteract}
         />
       </SceneErrorBoundary>
 
-      <DamageFlash hitCount={game.trapHits} />
+      <DamageFlash hitCount={me?.trapHits ?? 0} />
 
       {!finished && (
         <>
-          <GameControls input={input} actionPrompt={focused?.prompt ?? null} />
+          {meActive && <GameControls input={input} actionPrompt={focused?.prompt ?? null} />}
           <GameHUD
             objective={getObjectiveProgress(level, game).current?.text ?? "Level complete"}
             elapsedSeconds={game.elapsedSeconds}
             timeLimitSeconds={level.timeLimitSeconds ?? null}
             score={score.total}
-            inventory={game.inventory}
-            onPause={() => stage.pause()}
+            inventory={me?.inventory ?? []}
+            onPause={openMenu}
           />
         </>
       )}
 
-      <NoticeToast notice={game.notice} />
+      {/* Online: you escaped or are out, but others are still playing. */}
+      {!finished && me && !meActive && (
+        <View style={styles.banner} pointerEvents="none">
+          <Text style={styles.bannerText}>
+            {me.status === "escaped" ? "You escaped! Waiting for the others…" : "You're out. Watching the others…"}
+          </Text>
+        </View>
+      )}
+
+      {connectionNotice && (
+        <View style={[styles.banner, styles.connectionBanner]} pointerEvents="none">
+          <Text style={styles.bannerText}>{connectionNotice}</Text>
+        </View>
+      )}
+
+      <NoticeToast notice={me?.notice ?? null} />
 
       {dialog?.type === "message" && (
         <MessageDialog title={dialog.title} message={dialog.message} onClose={() => setDialog(null)} />
@@ -127,16 +165,19 @@ export function LevelSession({ level, onRestart, onNextLevel, onQuit }: LevelSes
       {dialog?.type === "puzzle" && (
         <PuzzleDialog
           puzzle={dialog.puzzle}
-          onAnswer={(optionIndex) => {
-            const correct = stage.answerPuzzle(dialog.puzzle.id, optionIndex);
-            if (correct) setDialog(null);
-            return correct;
-          }}
+          onAnswer={(optionIndex) => answerPuzzle(dialog.puzzle.id, optionIndex)}
           onClose={() => setDialog(null)}
         />
       )}
 
-      {paused && <PauseMenu onResume={() => stage.resume()} onRestart={onRestart} onQuit={onQuit} />}
+      {showMenu && !finished && (
+        <PauseMenu
+          online={source.online}
+          onResume={closeMenu}
+          onRestart={source.canPause ? onRestart : undefined}
+          onQuit={onQuit}
+        />
+      )}
 
       {game.status === "completed" && (
         <StageCompleteDialog
@@ -146,11 +187,20 @@ export function LevelSession({ level, onRestart, onNextLevel, onQuit }: LevelSes
           onRestart={onRestart}
           onNextLevel={onNextLevel}
           onExit={onQuit}
+          waitingNote={waitingNote}
+          exitLabel={exitLabel}
         />
       )}
 
       {game.status === "failed" && (
-        <StageFailedDialog levelName={level.name} onRestart={onRestart} onExit={onQuit} />
+        <StageFailedDialog
+          levelName={level.name}
+          reason={game.failReason ?? "timeUp"}
+          onRestart={onRestart}
+          onExit={onQuit}
+          waitingNote={waitingNote}
+          exitLabel={exitLabel}
+        />
       )}
 
       {!sceneReady && (
@@ -166,6 +216,27 @@ export function LevelSession({ level, onRestart, onNextLevel, onQuit }: LevelSes
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  banner: {
+    position: "absolute",
+    bottom: 24,
+    alignSelf: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 16,
+    backgroundColor: "rgba(27, 23, 18, 0.85)",
+    borderWidth: 1,
+    borderColor: "#8a7654",
+  },
+  connectionBanner: {
+    top: 140,
+    bottom: undefined,
+    borderColor: "#d9534f",
+  },
+  bannerText: {
+    color: "#f2e6d0",
+    fontSize: 14,
+    fontWeight: "600",
   },
   loading: {
     ...StyleSheet.absoluteFill,

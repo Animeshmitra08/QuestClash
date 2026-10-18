@@ -2,18 +2,22 @@
 
 A 2.5D third-person puzzle-adventure prototype for Android and iOS, built with Expo, React Three Fiber, and Three.js.
 
-Two single-player levels, both built from configuration on the same systems:
+Two levels, both built from configuration on the same systems, playable alone or online with up to five players:
 - **Forgotten Temple:** find the key, read the clue, solve the sun dial, open the locked door, time your run past the spike trap, and reach the exit.
 - **Moonlit Cloister:** a key-only gate, two out-of-step spike traps, an exit sealed until the moon altar is answered, and a two-minute time limit.
 
 Score depends on progress, time, trap hits and wrong answers; each level awards up to three stars.
 
+Online play uses a separate authoritative server in [server/](server/README.md) (Node.js + Colyseus). It runs the same rules as single player; see [Online multiplayer](#online-multiplayer) and [docs/MULTIPLAYER.md](docs/MULTIPLAYER.md).
+
 ## Project structure
 
 ```
 src/
-  app/                   Screens (Expo Router): index.tsx = start screen + level list, game.tsx = /game?level=<id>
+  app/                   Screens (Expo Router): index.tsx = start screen, game.tsx = single player (/game?level=<id>), online.tsx = rooms, lobby, online match
   components/            React Native UI: LevelSession (one attempt at a level), HUD, joystick, dialogs, menus
+  session/               MatchSource: what the scene and HUD use, with LocalMatch (single player) and OnlineMatch behind it
+  net/                   Online client: protocol.ts (shared with the server), OnlineSession (rooms, lobby, reconnection), OnlineMatch, config.ts
   levels/                Level configuration. Data only, no gameplay or rendering code (see docs/LEVELS.md)
     temple.ts, cloister.ts The two levels
     catalog.ts             Every level, in play order
@@ -23,32 +27,36 @@ src/
   game/                  The 3D scene (React Three Fiber). Rendering and per-frame glue only
     GameScene.tsx          The <Canvas>; creates the spatial systems and mounts everything below
     PlayerController       Each frame: input → movement, focus, USE presses
-    StageController        Each frame: stage rules at the player's position; applies respawns
+    StageController        Each frame: match rules at this device's player position; applies respawns
     CameraController       Fixed-angle follow camera
     Player, Room, Interactables, TriggerVisuals   Models in the level's theme; read state, never change it
     AssetBoundary          Shows a plain fallback if an asset fails to load
     gameClock              useGameFrame: frame time that is 0 while paused
   systems/               Gameplay rules. Plain TypeScript, no React or Three.js, all unit-tested
-    StageManager           Runs a level: owns GameState, level state machine, traps, events
-    interactionRules       What using each kind of object does (one handler per kind)
+    StageManager           Runs a match (1–5 players): validates commands, owns MatchState, traps, events
+    interactionRules       What using each kind of object does, and for whom (one handler per kind)
+    PlayerRegistry         Player ids, slots, status machine, spawn row
+    commandOrder           Deterministic order for commands that arrive together
     InventorySystem, PuzzleSystem, DoorSystem, TrapSystem, ObjectiveSystem, ScoreSystem
     MovementController, CollisionSystem, InteractionSystem   Movement, collision, what's in reach
     AudioManager           Game events → sounds, through a swappable backend (silent by default)
-    stateMachine           Transition tables for level, puzzle and door states
+    stateMachine           Transition tables for match, player, puzzle and door states
     levelValidation        Unique ids and valid references, checked when a level starts
     gameState, worldSync   Initial state and read helpers; keeps collision in step with progress
     __tests__/             Jest tests for all of the above
-  types/                 game.ts = level data types, state.ts = runtime state and events
-  hooks/                 useGameState: re-render when progress changes
-  testing/               Test helper that runs the real systems frame by frame, no rendering
+  types/                 game.ts = level data, state.ts = match state and events, commands.ts = player commands
+  hooks/                 useMatchState: re-render when match progress changes
+  testing/               Test harness: runs a match with 1–5 simulated players, no rendering
+server/                  Multiplayer server: separate Node.js + Colyseus project (see server/README.md)
 docs/
   LEVELS.md              How to create a level: the config format, ids, validation, assets
+  MULTIPLAYER.md         Shared vs personal state, ownership rules, conflict resolution, what's missing
   DEVICE_TESTING.md      Full on-device test checklist, and how to make a release build
   ASSETS_AND_CONFIG.md   Adding Blender models, textures and audio; configuration; troubleshooting
 ```
 
-The rule of the codebase: **game rules don't know about rendering.** The scene reports what happened (USE pressed on an object, a frame of play at some position) to `StageManager`. `StageManager` applies the rules and publishes:
-- an immutable `GameState`, which the HUD reads
+The rule of the codebase: **game rules don't know about rendering.** The scene sends commands (`interact`, `submitPuzzleAnswer`…, each naming the player responsible) and frames (time plus each player's position) to `StageManager`. `StageManager` validates and applies them, and publishes:
+- an immutable `MatchState` (shared world + one personal state per player), which the HUD reads
 - typed `GameEvent`s, which `AudioManager` listens to.
 
 Things that change every frame (player position, spike height) live in mutable objects that the renderer reads directly, never in React state.
@@ -137,6 +145,41 @@ npx expo-doctor      # dependency / config health
 ```
 
 The tests in `src/systems/__tests__/` cover every gameplay rule, plus a scripted full playthrough of the temple: key → door → clue → puzzle → door → trap → exit. Add a test next to any rule you change.
+
+## Online multiplayer
+
+The app and the server are two independent projects. Run each in its own terminal.
+
+**1. Server** (needs Node.js 22+):
+
+```bash
+cd server
+npm install
+npm run dev                 # listens on port 2567 on all network interfaces
+```
+
+**2. App:** tell it where the server is. Copy `.env.example` to `.env.local` and set your computer's LAN address. On a phone, `localhost` means the phone itself.
+
+```
+EXPO_PUBLIC_GAME_SERVER_URL=http://192.168.1.20:2567
+```
+
+Find the address with `ipconfig` (Windows) or `ifconfig` / `ip addr` (macOS/Linux). Then restart the dev server, because env values are read when Metro starts:
+
+```bash
+npx expo start --clear
+```
+
+No rebuild is needed: the Colyseus client is plain JavaScript.
+
+**3. Play:**
+1. On the first phone, tap **Play online**, enter a name and tap **Create a room**.
+2. On the second phone, enter the room code shown on the first and tap **Join room**.
+3. Both players tap **I'm ready**, and the match starts.
+
+The phones and the computer must be on the same Wi-Fi. On Windows, allow Node.js through the firewall when asked, or allow inbound TCP 2567.
+
+**Checking the server without phones:** `cd server && npm test`, then `npm run build && npm run smoke`. The smoke test runs the built server and two separate client processes; see [server/README.md](server/README.md).
 
 ## Release build (for testing outside the dev server)
 

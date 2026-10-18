@@ -43,6 +43,13 @@ export default function StartScreen() {
         >
           <Text style={styles.buttonText}>Start Game</Text>
         </Pressable>
+        <Pressable
+          style={({ pressed }) => [styles.button, styles.buttonSecondary, pressed && styles.buttonPressed]}
+          onPress={() => router.push("/online")}
+          accessibilityRole="button"
+        >
+          <Text style={[styles.buttonText, styles.buttonTextSecondary]}>Play online</Text>
+        </Pressable>
 
         <View style={styles.tips}>
           {HOW_TO_PLAY.map(([icon, text]) => (
@@ -118,6 +125,15 @@ const styles = StyleSheet.create({
   },
   buttonPressed: {
     opacity: 0.8,
+  },
+  buttonSecondary: {
+    marginTop: 10,
+    backgroundColor: "transparent",
+    borderWidth: 2,
+    borderColor: "#f2c230",
+  },
+  buttonTextSecondary: {
+    color: "#f2c230",
   },
   buttonText: {
     color: "#1b1712",

@@ -15,13 +15,22 @@ const threeModulePath = path.join(
   "three.module.js",
 );
 
+// The Colyseus SDK imports the Node-only `ws` package but uses React Native's built-in
+// WebSocket whenever one exists (`globalThis.WebSocket || ws`). Point `ws` at an empty
+// module so Metro doesn't try to bundle Node's networking modules.
+const wsShimPath = path.join(__dirname, "src", "net", "wsShim.js");
+
 config.resolver.resolveRequest = (context, moduleName, platform) => {
+  if (moduleName === "ws") return { type: "sourceFile", filePath: wsShimPath };
   return context.resolveRequest(
     context,
     moduleName === "three" ? threeModulePath : moduleName,
     platform,
   );
 };
+
+// server/ is a separate Node project (with its own node_modules); keep Metro out of it.
+config.resolver.blockList = [new RegExp(`${path.join(__dirname, "server").replace(/[\\/]/g, "[\\\\/]")}[\\\\/].*`)];
 
 // Let `require("./model.glb")` bundle 3D models as assets (Metro doesn't know these types).
 // .bin holds the geometry for multi-file .gltf models.

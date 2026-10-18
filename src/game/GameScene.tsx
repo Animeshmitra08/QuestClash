@@ -2,30 +2,29 @@ import { Canvas } from "@react-three/fiber/native";
 import { useEffect, useState } from "react";
 import { StyleSheet } from "react-native";
 
+import type { MatchSource } from "@/session/MatchSource";
 import { createLevelCollision } from "@/systems/CollisionSystem";
-import { getSpawnPoint } from "@/systems/gameState";
 import { InteractionSystem } from "@/systems/InteractionSystem";
 import { MovementController } from "@/systems/MovementController";
-import type { StageManager } from "@/systems/StageManager";
 import { syncWorldWithState } from "@/systems/worldSync";
-import type { Interactable, LevelDefinition } from "@/types/game";
+import type { Interactable } from "@/types/game";
 
 import { CAMERA_FOV, CAMERA_OFFSET, CameraController } from "./CameraController";
 import { GameClock, GameClockContext } from "./gameClock";
 import { Interactables } from "./Interactables";
-import { Player } from "./Player";
+import { Player, playerColor } from "./Player";
 import { PlayerController } from "./PlayerController";
 import type { PlayerInput } from "./PlayerInput";
+import { RemotePlayers } from "./RemotePlayers";
 import { Room } from "./Room";
 import { StageController } from "./StageController";
 import { TriggerVisuals } from "./TriggerVisuals";
 
 interface GameSceneProps {
-  level: LevelDefinition;
+  /** The match: run on this device (single player) or on the server (online). */
+  source: MatchSource;
   /** Shared with the on-screen controls, which write to it. */
   input: PlayerInput;
-  /** Stage rules and progress, shared with the HUD. */
-  stage: StageManager;
   /** Called once the GL context exists and the first frame can be drawn. */
   onReady?: () => void;
   /** The object in reach changed (null = nothing in reach). */
@@ -35,35 +34,29 @@ interface GameSceneProps {
 }
 
 /** The 3D world. HUD and menus live outside this component, as React Native views. */
-export function GameScene({
-  level,
-  input,
-  stage,
-  onReady,
-  onFocusChange,
-  onInteract,
-}: GameSceneProps) {
+export function GameScene({ source, input, onReady, onFocusChange, onInteract }: GameSceneProps) {
+  const { level, localPlayerId } = source;
   // Spatial systems are created once per scene mount and updated by the frame loop.
-  // Stage rules (puzzles, doors, traps, timer) live in `stage`.
+  // Match rules (puzzles, doors, traps, timer) live behind `source`.
   const [systems] = useState(() => {
     const collision = createLevelCollision(level);
-    const start = getSpawnPoint(level, level.playerSpawnId);
+    const start = source.spawnPoint();
     return {
       collision,
       interaction: new InteractionSystem(level.interactables),
       movement: new MovementController(start.position, start.facing, collision),
-      // Game time only flows while the stage is being played (not paused or finished).
-      clock: new GameClock(() => stage.isRunning),
+      // Game time only flows while the match is being played (not paused or finished).
+      clock: new GameClock(() => source.isRunning),
     };
   });
   const { collision, interaction, movement, clock } = systems;
 
   // Keep collision/interaction in step with progress (key taken, door opened…).
   useEffect(() => {
-    const sync = () => syncWorldWithState(level, stage.getState(), collision, interaction);
+    const sync = () => syncWorldWithState(level, source.getState(), collision, interaction);
     sync();
-    return stage.subscribe(sync);
-  }, [level, stage, collision, interaction]);
+    return source.subscribe(sync);
+  }, [level, source, collision, interaction]);
 
   const spawn = movement.state.position;
   const { theme } = level;
@@ -90,8 +83,8 @@ export function GameScene({
 
       <GameClockContext value={clock}>
         <Room level={level} />
-        <TriggerVisuals triggers={level.triggers} stage={stage} />
-        <Interactables items={level.interactables} interaction={interaction} stage={stage} />
+        <TriggerVisuals triggers={level.triggers} source={source} />
+        <Interactables items={level.interactables} interaction={interaction} source={source} />
 
         {/* Order matters: frame callbacks run in mount order (logic → drawing → camera). */}
         <PlayerController
@@ -101,8 +94,9 @@ export function GameScene({
           onFocusChange={onFocusChange}
           onInteract={onInteract}
         />
-        <StageController stage={stage} movement={movement} />
-        <Player state={movement.state} />
+        <StageController source={source} movement={movement} />
+        <Player state={movement.state} color={playerColor(source.getState().players[localPlayerId]?.slot ?? 0)} />
+        <RemotePlayers source={source} />
         <CameraController target={movement.state.position} />
       </GameClockContext>
     </Canvas>

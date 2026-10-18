@@ -1,4 +1,5 @@
 import { DOOR_TRANSITIONS } from "@/systems/DoorSystem";
+import { PLAYER_TRANSITIONS } from "@/systems/PlayerRegistry";
 import { PUZZLE_TRANSITIONS } from "@/systems/PuzzleSystem";
 import { LEVEL_TRANSITIONS } from "@/systems/StageManager";
 import { nextState } from "@/systems/stateMachine";
@@ -38,6 +39,27 @@ describe("puzzle", () => {
   it("a solved puzzle accepts no answers", () => {
     expect(nextState(PUZZLE_TRANSITIONS, "solved", "answerCorrect")).toBeNull();
     expect(nextState(PUZZLE_TRANSITIONS, "solved", "answerWrong")).toBeNull();
+  });
+});
+
+describe("player status", () => {
+  it.each([
+    ["active", "eliminate", "eliminated"],
+    ["active", "escape", "escaped"],
+    ["active", "leave", "left"],
+    ["eliminated", "leave", "left"],
+    ["escaped", "leave", "left"],
+  ] as const)("%s --%s--> %s", (from, event, to) => {
+    expect(nextState(PLAYER_TRANSITIONS, from, event)).toBe(to);
+  });
+
+  it.each([
+    ["eliminated", "escape"], // no escaping once out
+    ["escaped", "eliminate"], // no trap can reach you outside
+    ["left", "leave"],
+    ["left", "escape"],
+  ] as const)("rejects %s --%s", (from, event) => {
+    expect(nextState(PLAYER_TRANSITIONS, from, event)).toBeNull();
   });
 });
 

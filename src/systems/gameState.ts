@@ -1,25 +1,27 @@
 import type { LevelDefinition, SpawnPointDefinition } from "@/types/game";
-import type { DoorStatus, GameState } from "@/types/state";
+import type { DoorState, MatchPlayer, MatchState, PlayerId } from "@/types/state";
 
 import { INITIAL_PUZZLE_STATE } from "./PuzzleSystem";
 
-/** A fresh run: every puzzle unsolved, every door locked, nothing collected. */
-export function createInitialGameState(level: LevelDefinition): GameState {
-  const doors: Record<string, DoorStatus> = {};
+/** A fresh match with no players yet: every puzzle unsolved, every door locked, nothing collected. */
+export function createInitialMatchState(level: LevelDefinition): MatchState {
+  const doors: Record<string, DoorState> = {};
   for (const item of level.interactables) {
-    if (item.kind === "door") doors[item.id] = "locked";
+    if (item.kind === "door") doors[item.id] = { status: "locked", openedBy: null };
   }
 
   return {
     status: "playing",
-    inventory: [],
-    collectedPickupIds: [],
-    inspectedIds: [],
-    puzzles: Object.fromEntries(level.puzzles.map((p) => [p.id, INITIAL_PUZZLE_STATE])),
-    doors,
-    trapHits: 0,
+    failReason: null,
     elapsedSeconds: 0,
-    notice: null,
+    world: {
+      collectedPickups: {},
+      puzzles: Object.fromEntries(level.puzzles.map((p) => [p.id, INITIAL_PUZZLE_STATE])),
+      doors,
+      completedObjectives: {},
+    },
+    players: {},
+    playerOrder: [],
   };
 }
 
@@ -30,24 +32,46 @@ export function getSpawnPoint(level: LevelDefinition, id: string): SpawnPointDef
   return spawn;
 }
 
-// --- Selectors: read GameState without depending on its exact shape ---------------
+/** A copy of `state` with one player's personal state changed. */
+export function withPlayer(state: MatchState, playerId: PlayerId, changes: Partial<MatchPlayer>): MatchState {
+  return { ...state, players: { ...state.players, [playerId]: { ...state.players[playerId], ...changes } } };
+}
 
-export const isPickupCollected = (state: GameState, pickupId: string) =>
-  state.collectedPickupIds.includes(pickupId);
+// --- Selectors: read MatchState without depending on its exact shape --------------
 
-export const isInspected = (state: GameState, interactableId: string) =>
-  state.inspectedIds.includes(interactableId);
+export const getPlayer = (state: MatchState, playerId: PlayerId): MatchPlayer | undefined => state.players[playerId];
 
-export const isPuzzleSolved = (state: GameState, puzzleId: string) =>
-  state.puzzles[puzzleId]?.status === "solved";
+export const listPlayers = (state: MatchState): MatchPlayer[] => state.playerOrder.map((id) => state.players[id]);
 
-export const isDoorOpen = (state: GameState, doorId: string) => state.doors[doorId] === "open";
+/** Shared: the pickup is gone from the world (someone took it). */
+export const isPickupCollected = (state: MatchState, pickupId: string) =>
+  state.world.collectedPickups[pickupId] !== undefined;
 
-export const countSolvedPuzzles = (state: GameState) =>
-  Object.values(state.puzzles).filter((p) => p.status === "solved").length;
+/** Shared: any player has read this clue. */
+export const isInspected = (state: MatchState, interactableId: string) =>
+  listPlayers(state).some((player) => player.inspectedIds.includes(interactableId));
 
-export const countOpenDoors = (state: GameState) =>
-  Object.values(state.doors).filter((status) => status === "open").length;
+/** Personal: this player has read this clue. */
+export const hasRead = (state: MatchState, playerId: PlayerId, interactableId: string) =>
+  state.players[playerId]?.inspectedIds.includes(interactableId) ?? false;
 
-export const countWrongAnswers = (state: GameState) =>
-  Object.values(state.puzzles).reduce((total, p) => total + p.wrongAttempts, 0);
+export const isPuzzleSolved = (state: MatchState, puzzleId: string) =>
+  state.world.puzzles[puzzleId]?.status === "solved";
+
+export const isDoorOpen = (state: MatchState, doorId: string) => state.world.doors[doorId]?.status === "open";
+
+/** Clues read by at least one player (each counted once). */
+export const distinctCluesRead = (state: MatchState) =>
+  new Set(listPlayers(state).flatMap((player) => player.inspectedIds)).size;
+
+export const countSolvedPuzzles = (state: MatchState) =>
+  Object.values(state.world.puzzles).filter((p) => p.status === "solved").length;
+
+export const countOpenDoors = (state: MatchState) =>
+  Object.values(state.world.doors).filter((door) => door.status === "open").length;
+
+export const countWrongAnswers = (state: MatchState) =>
+  listPlayers(state).reduce((total, player) => total + player.wrongAnswers, 0);
+
+export const countTrapHits = (state: MatchState) =>
+  listPlayers(state).reduce((total, player) => total + player.trapHits, 0);

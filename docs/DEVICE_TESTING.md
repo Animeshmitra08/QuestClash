@@ -46,6 +46,21 @@ Tick each item off. If anything differs, note what you saw.
 - [ ] Cloister: after the altar is answered, the exit glows green and works. The completion screen has no **Next level** button (it's the last level).
 - [ ] Cloister: let the timer run out. **Out of time** appears, and **Try again** restarts at 2:00.
 
+### Online (two phones, server running; see README → Online multiplayer)
+- [ ] **Play online** shows the server address you set in `EXPO_PUBLIC_GAME_SERVER_URL`.
+- [ ] Phone A: **Create a room** shows a 5-letter code and the lobby, with A marked ★ (host).
+- [ ] Phone B: enter the code and tap **Join room**. Both lobbies list both players, each with their own colour.
+- [ ] A wrong code shows "No room with that code"; a stopped server shows "Can't reach the game server".
+- [ ] The host can change the level; the other player can't.
+- [ ] Both tap **I'm ready**, and the match starts on both phones in the chosen level.
+- [ ] Each phone shows the other player moving smoothly, in their colour.
+- [ ] One player picks up the key. It disappears for both, and the other sees "… found the Bronze Key."
+- [ ] Both stand at the key and press USE together. Only one gets it.
+- [ ] The puzzle, door and trap work as in single player, and each phone sees the other's results.
+- [ ] Turn on airplane mode on one phone for ~5 s, then turn it off. That phone shows "Reconnecting…" and then carries on, and the other phone's lobby list showed it as reconnecting.
+- [ ] **Leave match** on one phone: the other phone carries on alone.
+- [ ] Both reach the exit, then **Level Complete!** appears. Only the host sees **Next level** / **Play again**, and the other sees "Waiting for the host…".
+
 ### Pause and app lifecycle
 - [ ] The pause button freezes everything: player, spikes, timer and pop-up messages.
 - [ ] **Resume** continues exactly where you left off. **Restart stage** starts from the beginning with 0:00 and ★ 0.
