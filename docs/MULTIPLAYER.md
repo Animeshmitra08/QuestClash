@@ -1,22 +1,27 @@
 # Multiplayer
 
-Matches support up to five players. Single player runs the match on the device (`LocalMatch`). Online play runs the same `StageManager` on the server (`server/`), and each device sends it commands and its player's position (`OnlineMatch`). The scene and HUD don't know which mode they're in: both go through `MatchSource` (`src/session/MatchSource.ts`).
+Matches support up to five players. Single player runs the match on the device (`LocalMatch`). Online play runs the same `StageManager` on the server ([QuestClashServer](https://github.com/Animeshmitra08/QuestClashServer), a separate project), and each device sends it commands and its player's position (`OnlineMatch`). The scene and HUD don't know which mode they're in: both go through `MatchSource` (`src/session/MatchSource.ts`).
 
 ## Online architecture
 
 | Concern | Where it's decided |
 |---|---|
-| Item collection, puzzle answers, doors, traps, exits, score, objectives, stage progression | **Server** (`server/src/rooms/QuestRoom.ts`, running `StageManager`) |
+| Item collection, puzzle answers, doors, traps, exits, score, objectives, stage progression | **Server** (`src/rooms/QuestRoom.ts` in the server project, running `StageManager`) |
 | Your own movement | Your device moves your player instantly; it reports its position 15 times a second; the server checks every report (speed, walls) and corrects you if needed (respawn) |
 | Other players on your screen | Their server-checked positions, synced as Colyseus state patches and smoothed for drawing |
 | Spike animation | Each device redraws traps from the server's match clock. Whether a trap hurts is decided only by the server. |
 
-**Messages:** they're typed in `src/net/protocol.ts`, which the app and server import word for word.
+**Messages:** they're typed in `src/net/protocol.ts`.
+
+**Two copies of the shared code:** the server is a standalone project in its own repository (deployed to Render). It keeps its own copy of the protocol and the game rules in its `src/shared/` folder. When you change a rule, level or message:
+1. Change it in both places.
+2. If an older app must not connect to the new server, bump `PROTOCOL_VERSION`, also in both places. The server refuses a client with a different version, and the app shows "update the app".
 
 - **Client → server:**
   - `ready`, `selectLevel` (in the lobby)
   - `move`, `command` (during a match)
   - `restart`, `nextLevel` (host only, after a match)
+  - `reportPing` (any time, every 2 s): the client's measured round trip in ms. The server stores it in the synced `ping` field of that player, which the lobby shows for everyone.
 - **Server → client:**
   - `match`: the full `MatchState`, sent whenever it changes
   - `commandResult`: the answer to a `command`
@@ -37,7 +42,7 @@ Matches support up to five players. Single player runs the match on the device (
   - There are at most `MAX_PLAYERS = 5`.
   - Each player gets the lowest free slot (0–4), which decides their spawn position and body colour.
 - **Status:** `active → eliminated | escaped | left`. Only active players can act or set off traps and exits; positions reported for anyone else are ignored.
-- **Spawning:** players stand in a row, 1 unit apart, at the level's start point or a trap's respawn point. Slot 0 stands exactly on the point. A test checks that every slot at every spawn point in every level is clear of walls and traps.
+- **Spawning:** players stand in a row, 1 unit apart, at the level's start point or a trap's respawn point. Slot 0 stands exactly on the point. Keep every slot at every spawn point clear of walls and traps when you design a level.
 
 ## Shared vs personal state
 
@@ -97,21 +102,6 @@ Invalid answers (an option that doesn't exist, a negative or fractional index) a
 - The match **completes** when nobody is active and at least one player escaped.
 - It **fails** when the time runs out (`timeUp`), or when everyone was eliminated or left without anyone escaping (`allEliminated`).
 - Lives come from `MatchRules.livesPerPlayer`. The default is `null` (unlimited): a trap hit only sends you back, as in single player.
-
-## Testing
-
-`src/testing/simulation.ts` runs a match with several players. Each simulated player has their own body and their own view of what's in reach, and acts only through commands to the one shared match. `src/systems/__tests__/multiplayer.test.ts` covers:
-
-- the player registry and spawn safety
-- simultaneous key grabs, door openings and puzzle answers, and deterministic ordering
-- duplicate collection
-- invalid answers and other rejected commands
-- who gets credit for each result
-- personal pop-ups
-- elimination, items returning to the world, and losing when everyone is out
-- escaping one by one
-- players leaving mid-match
-- a full five-player match
 
 ## Not built yet
 

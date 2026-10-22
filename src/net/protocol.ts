@@ -1,7 +1,7 @@
 /**
- * The client–server protocol, shared word for word by the Expo app and the
- * Colyseus server (server/ imports this file). Plain types and constants only:
- * no React Native, no Colyseus imports, so it compiles on both sides.
+ * The client–server protocol. The Expo app and the Colyseus server (QuestClashServer) each
+ * keep an identical copy of this file. Plain types and constants only: no React
+ * Native, no Colyseus imports, so it compiles on both sides.
  *
  * Who decides what:
  *  - The server is authoritative for every gameplay rule: item collection, puzzle
@@ -13,6 +13,14 @@
  */
 import type { CommandResult, GameCommand } from "@/types/commands";
 import type { GameEvent, MatchState, PlayerId } from "@/types/state";
+
+/**
+ * The app and the server each keep their own copy of this file (and of the game
+ * rules), so they can be built and deployed separately. Bump this number whenever
+ * messages, rules or levels change in a way the other side must match; a client
+ * with a different number is refused with a clear "update" message.
+ */
+export const PROTOCOL_VERSION = 2;
 
 /** The Colyseus room type name. */
 export const ROOM_NAME = "quest";
@@ -26,6 +34,11 @@ export const MAX_NAME_LENGTH = 16;
 export const CLIENT_SEND_HZ = 15;
 export const SERVER_TICK_HZ = 20;
 
+/** How often each client measures its round trip to the server and reports it. */
+export const PING_INTERVAL_MS = 2000;
+/** Reported pings are clamped to this (ms), so a bad value can't show nonsense. */
+export const MAX_REPORTED_PING_MS = 9999;
+
 /** Seconds the server keeps a dropped player's seat open for them to reconnect. */
 export const RECONNECT_GRACE_SECONDS = 30;
 
@@ -34,6 +47,7 @@ export type RoomPhase = "lobby" | "playing" | "finished";
 /** Options a client passes when creating a room. */
 export interface CreateRoomOptions {
   name: string;
+  protocolVersion: number;
   /** Level to play; defaults to the first level. The host can change it in the lobby. */
   levelId?: string;
 }
@@ -41,6 +55,7 @@ export interface CreateRoomOptions {
 /** Options a client passes when joining by code. */
 export interface JoinRoomOptions {
   name: string;
+  protocolVersion: number;
 }
 
 /** A command as the client sends it: the server fills in who sent it, so it can't be faked. */
@@ -64,6 +79,8 @@ export interface ClientMessages {
   /** Finished, host only: play the same level again, or go on to the next one. */
   restart: Record<string, never>;
   nextLevel: Record<string, never>;
+  /** Any time: this client's latest measured round trip to the server, in ms (shown to everyone). */
+  reportPing: { ms: number };
 }
 
 // --- Server → client -------------------------------------------------------------
@@ -85,7 +102,7 @@ export interface ServerMessages {
 
 /**
  * The state Colyseus keeps in sync on every client (binary patches). The server's
- * schema (server/src/rooms/QuestRoomState.ts) must match these shapes; it checks
+ * schema (src/rooms/QuestRoomState.ts in the server project) must match these shapes; it checks
  * that at compile time.
  */
 export interface SyncedPlayer {
@@ -97,6 +114,8 @@ export interface SyncedPlayer {
   z: number;
   facing: number;
   moveAmount: number;
+  /** Round trip to the server in ms, as last reported by this player; 0 = not measured yet. */
+  ping: number;
 }
 
 export interface SyncedRoomState {
@@ -128,6 +147,7 @@ export const NET_ERRORS = {
   invalidLevel: "That level doesn't exist.",
   notHost: "Only the host can do that.",
   wrongPhase: "That isn't possible right now.",
+  versionMismatch: "This version of the app doesn't match the game server. Update the app (or the server).",
   serverUnreachable: "Can't reach the game server. Check your connection and the server address.",
   connectionLost: "Connection to the game server was lost.",
   requestTimedOut: "The server didn't answer in time.",
@@ -136,11 +156,15 @@ export const NET_ERRORS = {
 export type NetErrorCode = keyof typeof NET_ERRORS;
 
 /** Application close/join error codes in the range Colyseus reserves for apps (4011–4999). */
-export const APP_ERROR_CODES: Record<"roomFull" | "matchInProgress" | "invalidName" | "invalidLevel", number> = {
+export const APP_ERROR_CODES: Record<
+  "roomFull" | "matchInProgress" | "invalidName" | "invalidLevel" | "versionMismatch",
+  number
+> = {
   roomFull: 4101,
   matchInProgress: 4102,
   invalidName: 4103,
   invalidLevel: 4104,
+  versionMismatch: 4105,
 };
 
 /** A display name the server accepts: trimmed, 1–16 characters. */

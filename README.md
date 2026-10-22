@@ -8,7 +8,7 @@ Two levels, both built from configuration on the same systems, playable alone or
 
 Score depends on progress, time, trap hits and wrong answers; each level awards up to three stars.
 
-Online play uses a separate authoritative server in [server/](server/README.md) (Node.js + Colyseus). It runs the same rules as single player; see [Online multiplayer](#online-multiplayer) and [docs/MULTIPLAYER.md](docs/MULTIPLAYER.md).
+Online play uses an authoritative server, [QuestClashServer](https://github.com/Animeshmitra08/QuestClashServer) (Node.js + Colyseus). It's a separate project in its own repository, deployed to Render; it keeps its own copy of the game rules. See [Online multiplayer](#online-multiplayer) and [docs/MULTIPLAYER.md](docs/MULTIPLAYER.md).
 
 ## Project structure
 
@@ -32,7 +32,7 @@ src/
     Player, Room, Interactables, TriggerVisuals   Models in the level's theme; read state, never change it
     AssetBoundary          Shows a plain fallback if an asset fails to load
     gameClock              useGameFrame: frame time that is 0 while paused
-  systems/               Gameplay rules. Plain TypeScript, no React or Three.js, all unit-tested
+  systems/               Gameplay rules. Plain TypeScript, no React or Three.js
     StageManager           Runs a match (1–5 players): validates commands, owns MatchState, traps, events
     interactionRules       What using each kind of object does, and for whom (one handler per kind)
     PlayerRegistry         Player ids, slots, status machine, spawn row
@@ -43,11 +43,8 @@ src/
     stateMachine           Transition tables for match, player, puzzle and door states
     levelValidation        Unique ids and valid references, checked when a level starts
     gameState, worldSync   Initial state and read helpers; keeps collision in step with progress
-    __tests__/             Jest tests for all of the above
   types/                 game.ts = level data, state.ts = match state and events, commands.ts = player commands
   hooks/                 useMatchState: re-render when match progress changes
-  testing/               Test harness: runs a match with 1–5 simulated players, no rendering
-server/                  Multiplayer server: separate Node.js + Colyseus project (see server/README.md)
 docs/
   LEVELS.md              How to create a level: the config format, ids, validation, assets
   MULTIPLAYER.md         Shared vs personal state, ownership rules, conflict resolution, what's missing
@@ -138,22 +135,19 @@ When the build finishes, scan the QR code on your phone to install the APK. Then
 ## Checks
 
 ```bash
-npm test             # gameplay unit tests (Jest, no device or rendering needed)
 npx tsc --noEmit     # typecheck
 npx expo lint        # lint
 npx expo-doctor      # dependency / config health
 ```
 
-The tests in `src/systems/__tests__/` cover every gameplay rule, plus a scripted full playthrough of the temple: key → door → clue → puzzle → door → trap → exit. Add a test next to any rule you change.
-
 ## Online multiplayer
 
-The app and the server are two independent projects. Run each in its own terminal.
+The app and the server are two independent projects (the server is [QuestClashServer](https://github.com/Animeshmitra08/QuestClashServer), checked out next to this one, e.g. `../server`). Run each in its own terminal.
 
 **1. Server** (needs Node.js 22+):
 
 ```bash
-cd server
+cd ../server
 npm install
 npm run dev                 # listens on port 2567 on all network interfaces
 ```
@@ -179,7 +173,7 @@ No rebuild is needed: the Colyseus client is plain JavaScript.
 
 The phones and the computer must be on the same Wi-Fi. On Windows, allow Node.js through the firewall when asked, or allow inbound TCP 2567.
 
-**Checking the server without phones:** `cd server && npm test`, then `npm run build && npm run smoke`. The smoke test runs the built server and two separate client processes; see [server/README.md](server/README.md).
+**Hosting it on the internet (Render):** see the server's README, [Deploy to Render](https://github.com/Animeshmitra08/QuestClashServer#deploy-to-render). Then point the app at the Render URL, for example `EXPO_PUBLIC_GAME_SERVER_URL=https://questclash-server.onrender.com`. With an `https://` address, players don't need to be on the same Wi-Fi, and no firewall change is needed.
 
 ## Release build (for testing outside the dev server)
 

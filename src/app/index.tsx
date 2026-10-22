@@ -1,14 +1,26 @@
 import { router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import Animated, { FadeIn, FadeInDown, FadeInLeft, FadeInRight, useReducedMotion } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { GameButton } from "@/components/ui/GameButton";
+import { Eyebrow, Panel } from "@/components/ui/Panel";
+import { SceneryBackground } from "@/components/ui/SceneryBackground";
+import { COLORS, GOLD_GRADIENT, RADIUS } from "@/components/ui/theme";
+import { usePressScale } from "@/components/ui/usePressScale";
 import { FIRST_LEVEL_ID, LEVEL_CATALOG } from "@/levels/catalog";
+import type { LevelDefinition } from "@/types/game";
 
 const HOW_TO_PLAY = [
-  ["🕹️", "Drag the joystick (bottom-left) to walk."],
-  ["✋", "Tap USE (bottom-right) next to glowing objects."],
+  ["🕹️", "Joystick to walk"],
+  ["✋", "USE near glowing objects"],
 ] as const;
+
+const FLOAT = {
+  from: { transform: [{ translateY: 0 }] },
+  to: { transform: [{ translateY: -6 }] },
+};
 
 function play(levelId: string) {
   router.push({ pathname: "/game", params: { level: levelId } });
@@ -16,202 +28,270 @@ function play(levelId: string) {
 
 export default function StartScreen() {
   const insets = useSafeAreaInsets();
+  const animate = !useReducedMotion();
 
   return (
-    <View
-      style={[
-        styles.container,
-        { paddingLeft: insets.left + 32, paddingRight: insets.right + 32 },
-      ]}
-    >
+    <View style={styles.screen}>
       <StatusBar hidden />
+      <SceneryBackground variant="dusk" />
 
-      <View style={styles.hero}>
-        <Text style={styles.eyebrow}>A TEMPLE PUZZLE ADVENTURE</Text>
-        <Text style={styles.title}>QuestClash</Text>
-        <Text style={styles.subtitle}>Find keys, solve puzzles, dodge the traps.</Text>
+      <View
+        style={[
+          styles.content,
+          { paddingLeft: insets.left + 36, paddingRight: insets.right + 28, paddingTop: insets.top + 16, paddingBottom: insets.bottom + 16 },
+        ]}
+      >
+        <View style={styles.hero}>
+          <Animated.View entering={FadeInLeft.duration(600)}>
+            <Eyebrow>A TEMPLE PUZZLE ADVENTURE</Eyebrow>
+          </Animated.View>
 
-        {/*
-          Navigate with router.push rather than <Link asChild>: Link's Slot merges the
-          child's style as a plain object, which drops a function style like this one
-          (the button lost its background and became invisible).
-        */}
-        <Pressable
-          style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
-          onPress={() => play(FIRST_LEVEL_ID)}
-          accessibilityRole="button"
-        >
-          <Text style={styles.buttonText}>Start Game</Text>
-        </Pressable>
-        <Pressable
-          style={({ pressed }) => [styles.button, styles.buttonSecondary, pressed && styles.buttonPressed]}
-          onPress={() => router.push("/online")}
-          accessibilityRole="button"
-        >
-          <Text style={[styles.buttonText, styles.buttonTextSecondary]}>Play online</Text>
-        </Pressable>
-
-        <View style={styles.tips}>
-          {HOW_TO_PLAY.map(([icon, text]) => (
-            <View key={text} style={styles.tip}>
-              <Text style={styles.tipIcon}>{icon}</Text>
-              <Text style={styles.tipText}>{text}</Text>
-            </View>
-          ))}
-        </View>
-      </View>
-
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Levels</Text>
-        <ScrollView contentContainerStyle={styles.levelList}>
-          {LEVEL_CATALOG.map((level, index) => (
-            <Pressable
-              key={level.id}
-              style={({ pressed }) => [styles.level, pressed && styles.buttonPressed]}
-              onPress={() => play(level.id)}
-              accessibilityRole="button"
-              accessibilityLabel={`Play level ${index + 1}, ${level.name}`}
+          {/*
+            Navigation uses router.push rather than <Link asChild>: Link's Slot merges the
+            child's style as a plain object, which drops function styles on Pressables.
+          */}
+          <Animated.View entering={FadeInLeft.delay(120).duration(700)}>
+            <Animated.View
+              style={
+                animate && {
+                  animationName: FLOAT,
+                  animationDuration: 2800,
+                  animationIterationCount: "infinite",
+                  animationDirection: "alternate",
+                  animationTimingFunction: "ease-in-out",
+                }
+              }
             >
-              <Text style={styles.levelNumber}>{index + 1}</Text>
-              <View style={styles.levelText}>
-                <Text style={styles.levelName}>{level.name}</Text>
-                <Text style={styles.levelDescription}>{level.description}</Text>
+              <Text style={styles.title} accessibilityRole="header">
+                Quest<Text style={styles.titleAccent}>Clash</Text>
+              </Text>
+            </Animated.View>
+          </Animated.View>
+
+          <Animated.Text entering={FadeInLeft.delay(220).duration(700)} style={styles.subtitle}>
+            Find keys, solve puzzles, dodge the traps.
+          </Animated.Text>
+
+          <Animated.View entering={FadeInDown.delay(360).duration(600)} style={styles.actions}>
+            <GameButton label="Start Adventure" icon="▶" size="lg" shimmer onPress={() => play(FIRST_LEVEL_ID)} />
+            <GameButton label="Play Online" icon="⚔" size="lg" variant="secondary" onPress={() => router.push("/online")} />
+          </Animated.View>
+
+          <Animated.View entering={FadeIn.delay(600).duration(600)} style={styles.tips}>
+            {HOW_TO_PLAY.map(([icon, text]) => (
+              <View key={text} style={styles.tip}>
+                <Text style={styles.tipIcon}>{icon}</Text>
+                <Text style={styles.tipText}>{text}</Text>
               </View>
-              <Text style={styles.levelPlay}>▶</Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-        <Text style={styles.cardFooter}>Faster runs with fewer mistakes earn more stars.</Text>
+            ))}
+          </Animated.View>
+        </View>
+
+        <Panel style={styles.levels} delay={250}>
+          <View style={styles.levelsHeader}>
+            <Text style={styles.levelsTitle}>Choose your path</Text>
+            <View style={styles.countBadge}>
+              <Text style={styles.countText}>{LEVEL_CATALOG.length} levels</Text>
+            </View>
+          </View>
+          <ScrollView contentContainerStyle={styles.levelList} showsVerticalScrollIndicator={false}>
+            {LEVEL_CATALOG.map((level, index) => (
+              <Animated.View key={level.id} entering={FadeInRight.delay(400 + index * 110).duration(500)}>
+                <LevelCard level={level} index={index} />
+              </Animated.View>
+            ))}
+          </ScrollView>
+          <Text style={styles.levelsFooter}>★ Faster runs with fewer mistakes earn more stars.</Text>
+        </Panel>
       </View>
     </View>
   );
 }
 
+function LevelCard({ level, index }: { level: LevelDefinition; index: number }) {
+  const press = usePressScale(0.97);
+  return (
+    <Animated.View style={press.style}>
+      <Pressable
+        style={({ pressed }) => [styles.levelCard, pressed && styles.levelCardPressed]}
+        onPress={() => play(level.id)}
+        {...press.handlers}
+        accessibilityRole="button"
+        accessibilityLabel={`Play level ${index + 1}, ${level.name}`}
+      >
+        <View style={styles.levelBadge}>
+          <Text style={styles.levelNumber}>{index + 1}</Text>
+        </View>
+        <View style={styles.levelText}>
+          <Text style={styles.levelName} numberOfLines={1}>
+            {level.name}
+          </Text>
+          <Text style={styles.levelDescription} numberOfLines={2}>
+            {level.description}
+          </Text>
+        </View>
+        <View style={styles.playCircle}>
+          <Text style={styles.playGlyph}>▶</Text>
+        </View>
+      </Pressable>
+    </Animated.View>
+  );
+}
+
 const styles = StyleSheet.create({
-  container: {
+  screen: {
+    flex: 1,
+    backgroundColor: COLORS.ink,
+  },
+  content: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: 32,
-    backgroundColor: "#1b1712",
+    gap: 28,
   },
   hero: {
     flex: 1,
-  },
-  eyebrow: {
-    color: "#f2c230",
-    fontSize: 12,
-    fontWeight: "800",
-    letterSpacing: 2,
+    gap: 6,
   },
   title: {
-    color: "#f2e6d0",
-    fontSize: 48,
+    color: COLORS.text,
+    fontSize: 58,
     fontWeight: "900",
-    marginTop: 4,
+    letterSpacing: -1,
+    textShadowColor: "rgba(0, 0, 0, 0.45)",
+    textShadowOffset: { width: 0, height: 4 },
+    textShadowRadius: 12,
+  },
+  titleAccent: {
+    color: COLORS.gold,
+    textShadowColor: "rgba(246, 170, 60, 0.75)",
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 18,
   },
   subtitle: {
-    color: "#c9b99c",
-    fontSize: 18,
-    marginBottom: 24,
+    color: COLORS.textMuted,
+    fontSize: 17,
+    marginBottom: 14,
   },
-  button: {
-    alignSelf: "flex-start",
-    backgroundColor: "#f2c230",
-    paddingHorizontal: 44,
-    paddingVertical: 16,
-    borderRadius: 12,
-  },
-  buttonPressed: {
-    opacity: 0.8,
-  },
-  buttonSecondary: {
-    marginTop: 10,
-    backgroundColor: "transparent",
-    borderWidth: 2,
-    borderColor: "#f2c230",
-  },
-  buttonTextSecondary: {
-    color: "#f2c230",
-  },
-  buttonText: {
-    color: "#1b1712",
-    fontSize: 20,
-    fontWeight: "800",
+  actions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
   },
   tips: {
-    marginTop: 20,
-    gap: 6,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 14,
   },
   tip: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: RADIUS.pill,
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    borderWidth: 1,
+    borderColor: COLORS.panelBorder,
   },
   tipIcon: {
-    fontSize: 18,
-    width: 26,
-    textAlign: "center",
-  },
-  tipText: {
-    flex: 1,
-    color: "#c9b99c",
     fontSize: 14,
   },
-  card: {
-    flex: 1,
-    maxWidth: 420,
-    maxHeight: "90%",
-    padding: 16,
-    borderRadius: 12,
-    backgroundColor: "#2a231a",
-    borderWidth: 1,
-    borderColor: "#8a7654",
-    gap: 10,
+  tipText: {
+    color: COLORS.textMuted,
+    fontSize: 13,
+    fontWeight: "600",
   },
-  cardTitle: {
-    color: "#f2c230",
-    fontSize: 18,
+  levels: {
+    flex: 1,
+    maxWidth: 400,
+    maxHeight: "92%",
+  },
+  levelsHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  levelsTitle: {
+    color: COLORS.text,
+    fontSize: 20,
+    fontWeight: "800",
+  },
+  countBadge: {
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: RADIUS.pill,
+    backgroundColor: "rgba(246, 196, 69, 0.16)",
+  },
+  countText: {
+    color: COLORS.gold,
+    fontSize: 12,
     fontWeight: "800",
   },
   levelList: {
-    gap: 8,
+    gap: 10,
   },
-  level: {
+  levelCard: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    padding: 10,
-    borderRadius: 8,
-    backgroundColor: "rgba(242, 230, 208, 0.06)",
+    gap: 14,
+    padding: 12,
+    borderRadius: RADIUS.md,
+    backgroundColor: "rgba(255, 255, 255, 0.06)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.08)",
+  },
+  levelCardPressed: {
+    backgroundColor: "rgba(246, 196, 69, 0.14)",
+    borderColor: "rgba(246, 196, 69, 0.5)",
+  },
+  levelBadge: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.gold,
+    experimental_backgroundImage: GOLD_GRADIENT,
+    boxShadow: "0 4px 12px rgba(246, 170, 60, 0.35)",
   },
   levelNumber: {
-    color: "#f2c230",
-    fontSize: 22,
+    color: COLORS.ink,
+    fontSize: 20,
     fontWeight: "900",
-    width: 24,
-    textAlign: "center",
   },
   levelText: {
     flex: 1,
+    gap: 2,
   },
   levelName: {
-    color: "#f2e6d0",
+    color: COLORS.text,
     fontSize: 16,
-    fontWeight: "700",
+    fontWeight: "800",
   },
   levelDescription: {
-    color: "#c9b99c",
+    color: COLORS.textMuted,
     fontSize: 12,
+    lineHeight: 16,
   },
-  levelPlay: {
-    color: "#f2c230",
-    fontSize: 18,
+  playCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(246, 196, 69, 0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(246, 196, 69, 0.5)",
   },
-  cardFooter: {
-    color: "#c9b99c",
+  playGlyph: {
+    color: COLORS.gold,
     fontSize: 13,
-    fontStyle: "italic",
+    marginLeft: 2,
+  },
+  levelsFooter: {
+    color: COLORS.textDim,
+    fontSize: 12,
   },
 });

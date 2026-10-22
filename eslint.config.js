@@ -5,8 +5,7 @@ const expoConfig = require("eslint-config-expo/flat");
 module.exports = defineConfig([
   expoConfig,
   {
-    // server/ is a separate Node project with its own config.
-    ignores: ["dist/*", "server/*"],
+    ignores: ["dist/*"],
   },
   {
     // React Three Fiber elements (<mesh args position …>) are not DOM elements.

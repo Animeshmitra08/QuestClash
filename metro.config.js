@@ -29,9 +29,6 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   );
 };
 
-// server/ is a separate Node project (with its own node_modules); keep Metro out of it.
-config.resolver.blockList = [new RegExp(`${path.join(__dirname, "server").replace(/[\\/]/g, "[\\\\/]")}[\\\\/].*`)];
-
 // Let `require("./model.glb")` bundle 3D models as assets (Metro doesn't know these types).
 // .bin holds the geometry for multi-file .gltf models.
 config.resolver.assetExts.push("glb", "gltf", "bin");

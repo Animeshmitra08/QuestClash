@@ -8,7 +8,7 @@ A level is one TypeScript object of type `LevelDefinition` (defined in `src/type
 2. Add it to `LEVEL_CATALOG` in `src/levels/catalog.ts` (the order there is the order on the start screen).
 3. Point the previous level's `nextLevelId` at the new level's `id`.
 4. If it uses art, put the file under `assets/`, register it in `src/levels/assets.ts`, and reference its key from `assets`.
-5. Run `npm test`. The catalog tests load every level, so a broken reference fails the tests before it can reach a phone.
+5. Run `npx tsc --noEmit`, then open the level in the app. Every level is validated when it starts, so a broken reference is reported instead of loading.
 
 ## Fields
 

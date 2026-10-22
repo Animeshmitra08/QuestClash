@@ -206,7 +206,7 @@ Adding real sound means writing a backend; no gameplay code changes.
    ```
 4. In `src/app/game.tsx`, change `new AudioManager()` to `new AudioManager(createExpoAudioBackend())`.
 
-This backend is a sketch: it isn't compiled or tested, because `expo-audio` isn't installed. The `AudioManager` side is covered by the unit tests.
+This backend is a sketch: it isn't compiled or tested, because `expo-audio` isn't installed.
 
 For looping background music, use a separate player with `player.loop = true`, outside the event mapping.
 

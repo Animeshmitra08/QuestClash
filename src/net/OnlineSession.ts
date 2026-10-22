@@ -1,7 +1,11 @@
+// Must stay the first import: installs built-ins Hermes lacks before the SDK loads.
+import "./hermesPolyfills";
+
 import { Client, CloseCode, type Room } from "@colyseus/sdk";
 
 import { FIRST_LEVEL_ID, LEVEL_CATALOG } from "@/levels/catalog";
 
+import { describeRawError, netLog } from "./netLog";
 import { OnlineMatch, type RoomLink } from "./OnlineMatch";
 import {
   APP_ERROR_CODES,
@@ -11,6 +15,8 @@ import {
   NET_ERRORS,
   type NetErrorCode,
   normalizeRoomCode,
+  PING_INTERVAL_MS,
+  PROTOCOL_VERSION,
   ROOM_NAME,
   type RoomPhase,
   type ServerMessages,
@@ -27,6 +33,8 @@ export interface LobbyPlayer {
   connected: boolean;
   isHost: boolean;
   isYou: boolean;
+  /** Round trip to the server in ms, or null until measured. */
+  ping: number | null;
 }
 
 /** Everything the online screens show, as one immutable snapshot (for useSyncExternalStore). */
@@ -69,6 +77,7 @@ export function describeJoinError(error: unknown): string {
   if (code === APP_ERROR_CODES.matchInProgress || /locked/i.test(message)) return NET_ERRORS.matchInProgress;
   if (code === APP_ERROR_CODES.invalidName) return NET_ERRORS.invalidName;
   if (code === APP_ERROR_CODES.invalidLevel) return NET_ERRORS.invalidLevel;
+  if (code === APP_ERROR_CODES.versionMismatch) return NET_ERRORS.versionMismatch;
   if (/not found|invalid room|no rooms/i.test(message) || code === 522) return NET_ERRORS.roomNotFound;
   return NET_ERRORS.serverUnreachable;
 }
@@ -76,19 +85,23 @@ export function describeJoinError(error: unknown): string {
 /**
  * The connection to the game server for one room: creating or joining by code,
  * the lobby (ready, level choice), matches, and reconnecting after a drop.
- * Plain TypeScript with no React Native imports, so the server's tests drive it
- * exactly as the app does.
+ * Plain TypeScript with no React Native imports.
  */
 export class OnlineSession {
   private readonly client: Client;
+  private readonly serverUrl: string;
   private room: SdkRoom | null = null;
   private view: SessionView = INITIAL_VIEW;
   private readonly listeners = new Set<() => void>();
   /** Last lobby fields published, to avoid re-rendering on every movement patch. */
   private lobbyKey = "";
   private onFirstSync: (() => void) | null = null;
+  private pingTimer: ReturnType<typeof setInterval> | null = null;
+  /** Our own latest round trip, shown straight away rather than after the server echoes it back. */
+  private localPing: number | null = null;
 
   constructor(serverUrl: string) {
+    this.serverUrl = serverUrl;
     this.client = new Client(serverUrl);
   }
 
@@ -110,30 +123,46 @@ export class OnlineSession {
 
   /** Create a room and become its host. Resolves false (with `view.error` set) on failure. */
   create(name: string, levelId?: string): Promise<boolean> {
-    const options: CreateRoomOptions = { name, levelId };
-    return this.connect(() => this.client.create<SyncedRoomState>(ROOM_NAME, options) as Promise<SdkRoom>);
+    const options: CreateRoomOptions = { name, levelId, protocolVersion: PROTOCOL_VERSION };
+    return this.connect(`create "${ROOM_NAME}"`, () =>
+      this.client.create<SyncedRoomState>(ROOM_NAME, options) as Promise<SdkRoom>,
+    );
   }
 
   /** Join a friend's room by its code. */
   join(code: string, name: string): Promise<boolean> {
-    const options: JoinRoomOptions = { name };
-    return this.connect(() => this.client.joinById<SyncedRoomState>(normalizeRoomCode(code), options) as Promise<SdkRoom>);
+    const options: JoinRoomOptions = { name, protocolVersion: PROTOCOL_VERSION };
+    const roomCode = normalizeRoomCode(code);
+    return this.connect(`join ${roomCode}`, () =>
+      this.client.joinById<SyncedRoomState>(roomCode, options) as Promise<SdkRoom>,
+    );
   }
 
-  private async connect(open: () => Promise<SdkRoom>): Promise<boolean> {
+  private async connect(action: string, open: () => Promise<SdkRoom>): Promise<boolean> {
     if (this.room) return true;
     this.setView({ status: "connecting", error: null });
+    const startedAt = Date.now();
+    netLog.info(`${action}: connecting to ${this.serverUrl}`);
     try {
       const room = await open();
+      netLog.info(`${action}: joined room ${room.roomId} as ${room.sessionId} (${Date.now() - startedAt} ms)`);
       const firstSync = new Promise<void>((resolve) => {
         this.onFirstSync = resolve;
-        setTimeout(resolve, FIRST_SYNC_TIMEOUT_MS); // don't hang if the first patch is slow
+        setTimeout(() => {
+          if (this.onFirstSync === resolve) netLog.warn(`No lobby state after ${FIRST_SYNC_TIMEOUT_MS} ms; continuing`);
+          resolve();
+        }, FIRST_SYNC_TIMEOUT_MS); // don't hang if the first patch is slow
       });
       this.attach(room);
       await firstSync; // so the lobby (players, code) is ready before we report success
       return true;
     } catch (error) {
-      this.setView({ status: "idle", error: describeJoinError(error) });
+      const message = describeJoinError(error);
+      netLog.error(`${action} failed after ${Date.now() - startedAt} ms → "${message}"`, {
+        serverUrl: this.serverUrl,
+        ...describeRawError(error),
+      });
+      this.setView({ status: "idle", error: message });
       return false;
     }
   }
@@ -218,28 +247,62 @@ export class OnlineSession {
       this.view.match?.applyCommandResult(message),
     );
     room.onMessage("events", (message: ServerMessages["events"]) => this.view.match?.applyEvents(message.events));
-    room.onMessage("error", (message: ServerMessages["error"]) =>
-      this.setView({ error: NET_ERRORS[message.code as NetErrorCode] ?? message.message }),
-    );
+    room.onMessage("error", (message: ServerMessages["error"]) => {
+      netLog.warn(`Server refused a request: ${message.code}`, message.message);
+      this.setView({ error: NET_ERRORS[message.code as NetErrorCode] ?? message.message });
+    });
 
-    room.onDrop(() => this.setView({ status: "reconnecting" }));
-    room.onReconnect(() => this.setView({ status: "connected", error: null }));
-    room.onLeave((code: number) => {
+    room.onDrop((code?: number, reason?: string) => {
+      netLog.warn(`Connection dropped (code ${code}${reason ? `, ${reason}` : ""}); reconnecting…`);
+      this.setView({ status: "reconnecting" });
+    });
+    room.onReconnect(() => {
+      netLog.info(`Reconnected to room ${room.roomId}`);
+      this.setView({ status: "connected", error: null });
+    });
+    room.onLeave((code: number, reason?: string) => {
       if (this.room !== room) return; // we left on purpose; already handled
+      const consented = code === CloseCode.CONSENTED;
+      (consented ? netLog.info : netLog.warn)(`Left room ${room.roomId} (code ${code}${reason ? `, ${reason}` : ""})`);
+      this.stopPing();
       this.view.match?.dispose();
       this.room = null;
       this.setView({
         status: "closed",
-        error: code === CloseCode.CONSENTED ? null : NET_ERRORS.connectionLost,
+        error: consented ? null : NET_ERRORS.connectionLost,
       });
     });
-    room.onError((_code: number, message?: string) => this.setView({ error: message ?? NET_ERRORS.connectionLost }));
+    room.onError((code: number, message?: string) => {
+      netLog.error(`Room error ${code}`, message);
+      this.setView({ error: message ?? NET_ERRORS.connectionLost });
+    });
+
+    this.measurePing(room);
+    this.pingTimer = setInterval(() => this.measurePing(room), PING_INTERVAL_MS);
+  }
+
+  /** Time a round trip to the server, show it, and report it so the other players see it too. */
+  private measurePing(room: SdkRoom) {
+    if (this.room !== room || !room.connection.isOpen) return;
+    room.ping((ms) => {
+      if (this.room !== room) return;
+      this.localPing = Math.max(1, Math.round(ms));
+      if (room.connection.isOpen) room.send("reportPing", { ms: this.localPing });
+      this.publishLobby();
+    });
   }
 
   private detach() {
+    this.stopPing();
     this.view.match?.dispose();
     this.room?.removeAllListeners();
     this.room = null;
+  }
+
+  private stopPing() {
+    if (this.pingTimer) clearInterval(this.pingTimer);
+    this.pingTimer = null;
+    this.localPing = null;
   }
 
   /** Publish lobby fields (players, ready, phase…) only when they changed, not on every movement patch. */
@@ -257,11 +320,13 @@ export class OnlineSession {
         connected: player.connected,
         isHost: id === state.hostId,
         isYou: id === room.sessionId,
+        ping: id === room.sessionId && this.localPing !== null ? this.localPing : player.ping || null,
       });
     });
     players.sort((a, b) => a.slot - b.slot);
     const phase = (state.phase || "lobby") as RoomPhase;
     if (players.length > 0) {
+      if (this.onFirstSync) netLog.info(`Lobby ready: room ${state.code || room.roomId}, ${players.length} player(s)`);
       this.onFirstSync?.();
       this.onFirstSync = null;
     }
