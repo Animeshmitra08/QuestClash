@@ -185,6 +185,11 @@ export class OnlineSession {
     this.send("nextLevel", {});
   }
 
+  /** Host, after a match: everyone returns to the lobby to get ready again. */
+  backToLobby() {
+    this.send("backToLobby", {});
+  }
+
   /** Leave the room on purpose (no reconnection). */
   async leave() {
     const room = this.room;
@@ -263,13 +268,18 @@ export class OnlineSession {
     room.onLeave((code: number, reason?: string) => {
       if (this.room !== room) return; // we left on purpose; already handled
       const consented = code === CloseCode.CONSENTED;
-      (consented ? netLog.info : netLog.warn)(`Left room ${room.roomId} (code ${code}${reason ? `, ${reason}` : ""})`);
+      const hostLeft = code === APP_ERROR_CODES.hostLeft;
+      (consented || hostLeft ? netLog.info : netLog.warn)(
+        `Left room ${room.roomId} (code ${code}${reason ? `, ${reason}` : ""})${hostLeft ? ": the host left" : ""}`,
+      );
       this.stopPing();
       this.view.match?.dispose();
       this.room = null;
+      // Back to the join screen, saying why.
       this.setView({
+        ...INITIAL_VIEW,
         status: "closed",
-        error: consented ? null : NET_ERRORS.connectionLost,
+        error: hostLeft ? NET_ERRORS.hostLeft : consented ? null : NET_ERRORS.connectionLost,
       });
     });
     room.onError((code: number, message?: string) => {
@@ -333,14 +343,18 @@ export class OnlineSession {
     const key = JSON.stringify([state.code, phase, state.levelId, state.hostId, players]);
     if (key === this.lobbyKey) return;
     this.lobbyKey = key;
+    // The host took everyone back to the lobby: leave the finished match. Only this
+    // exact change clears the match, because a new match's first `match` message can
+    // arrive before the phase patch that says "playing".
+    const backInLobby = this.view.phase === "finished" && phase === "lobby";
+    if (backInLobby) this.view.match?.dispose();
     this.setView({
       code: state.code || room.roomId,
       phase,
       levelId: state.levelId || FIRST_LEVEL_ID,
       players,
       isHost: state.hostId === room.sessionId,
-      // `match` is deliberately not touched here: the first `match` message can arrive
-      // before the phase patch, and a room never goes back to the lobby.
+      ...(backInLobby && { match: null }),
     });
   }
 }

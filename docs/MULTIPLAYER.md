@@ -20,7 +20,7 @@ Matches support up to five players. Single player runs the match on the device (
 - **Client → server:**
   - `ready`, `selectLevel` (in the lobby)
   - `move`, `command` (during a match)
-  - `restart`, `nextLevel` (host only, after a match)
+  - `restart`, `nextLevel`, `backToLobby` (host only, after a match)
   - `reportPing` (any time, every 2 s): the client's measured round trip in ms. The server stores it in the synced `ping` field of that player, which the lobby shows for everyone.
 - **Server → client:**
   - `match`: the full `MatchState`, sent whenever it changes
@@ -29,7 +29,9 @@ Matches support up to five players. Single player runs the match on the device (
   - `events`
   - `error`
 
-**Rooms:** each room has a 5-character code (no 0/O/1/I/L). Clients create with `client.create("quest", …)` and join with `client.joinById(code, …)`. A room locks when its match starts; players who drop can still reconnect.
+**Rooms:** each room has a 5-character code (no 0/O/1/I/L). Clients create with `client.create("quest", …)` and join with `client.joinById(code, …)`. A room locks when its match starts; players who drop can still reconnect. When the match ends the room opens again: anyone who left can rejoin with the same code, and is included when the host starts the next match (Play again, Next level) or takes everyone back to the lobby (Back to lobby).
+
+**Host leaving:** the host owns the room. If the host leaves (or drops and doesn't reconnect within 30 seconds), the room closes for everyone, with close code `hostLeft` (4106), and each player returns to the join screen with "The host left, so the room was closed."
 
 **Disconnects:** a dropped connection keeps the player's seat and their place in the match for 30 seconds. The Colyseus SDK reconnects automatically, as the same player id. While someone is disconnected their body stands still, and traps and exits ignore it. Leaving on purpose, or not returning in time, removes the player, and their items go back where they were found.
 

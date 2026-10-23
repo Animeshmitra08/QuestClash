@@ -6,6 +6,7 @@ import Animated, { FadeIn, FadeInLeft, FadeInRight, LinearTransition, useReduced
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { LevelSession } from "@/components/LevelSession";
+import { OnlineResults } from "@/components/OnlineResults";
 import { GameButton } from "@/components/ui/GameButton";
 import { ErrorBanner, Eyebrow, InfoNote, Panel } from "@/components/ui/Panel";
 import { SceneryBackground } from "@/components/ui/SceneryBackground";
@@ -40,15 +41,35 @@ export default function OnlineScreen() {
   if (view.match) {
     const { match } = view;
     const nextLevelId = match.level.nextLevelId;
+    const exitLabel = view.isHost ? "Close room" : "Leave room";
     return (
       <LevelSession
         key={match.matchNumber}
         source={match}
         onRestart={view.isHost ? () => session.restart() : undefined}
-        onNextLevel={view.isHost && nextLevelId ? () => session.nextLevel() : undefined}
         onQuit={leaveRoom}
+        exitLabel={exitLabel}
         connectionNotice={view.status === "reconnecting" ? "Connection lost. Reconnecting…" : null}
-        waitingNote={view.isHost ? undefined : "Waiting for the host to choose what's next…"}
+        renderResults={(state) => (
+          <OnlineResults
+            level={match.level}
+            state={state}
+            localPlayerId={match.localPlayerId}
+            roomPlayers={view.players}
+            roomCode={view.code}
+            reconnecting={view.status === "reconnecting"}
+            onNextLevel={view.isHost && nextLevelId && state.status === "completed" ? () => session.nextLevel() : undefined}
+            onRestart={view.isHost ? () => session.restart() : undefined}
+            onBackToLobby={view.isHost ? () => session.backToLobby() : undefined}
+            onExit={leaveRoom}
+            exitLabel={exitLabel}
+            note={
+              view.isHost
+                ? "Closing the room sends everyone home."
+                : "Waiting for the host to choose what's next… You can leave and rejoin with the code."
+            }
+          />
+        )}
       />
     );
   }
@@ -263,6 +284,7 @@ function Lobby({ session, view, onLeave }: { session: OnlineSession; view: Sessi
   const connectedCount = view.players.filter((player) => player.connected).length;
   const readyShare = connectedCount === 0 ? 0 : readyCount / connectedCount;
   const reconnecting = view.status === "reconnecting";
+  const afterMatch = view.phase === "finished";
 
   const shareCode = () => {
     void Share.share({ message: `Join my QuestClash room! Code: ${code}` }).catch(() => {});
@@ -348,13 +370,21 @@ function Lobby({ session, view, onLeave }: { session: OnlineSession; view: Sessi
             {view.players.length < MAX_ROOM_PLAYERS && <WaitingRow />}
           </ScrollView>
 
-          <Text style={styles.hint}>The match starts when everyone is ready.</Text>
-          {me?.ready ? (
-            <GameButton label="Ready! Tap to cancel" icon="✓" variant="success" onPress={() => session.setReady(false)} />
+          {afterMatch ? (
+            // Rejoined while the others are still on the end-of-match screen.
+            <Text style={styles.hint}>A match just ended. Waiting for the host to start the next one…</Text>
           ) : (
-            <GameButton label="I'm ready" icon="⚑" shimmer onPress={() => session.setReady(true)} disabled={reconnecting} />
+            <>
+              <Text style={styles.hint}>The match starts when everyone is ready.</Text>
+              {me?.ready ? (
+                <GameButton label="Ready! Tap to cancel" icon="✓" variant="success" onPress={() => session.setReady(false)} />
+              ) : (
+                <GameButton label="I'm ready" icon="⚑" shimmer onPress={() => session.setReady(true)} disabled={reconnecting} />
+              )}
+            </>
           )}
-          <GameButton label="Leave room" variant="ghost" onPress={onLeave} />
+          <GameButton label={view.isHost ? "Close room" : "Leave room"} variant="ghost" onPress={onLeave} />
+          {view.isHost && <Text style={styles.hint}>Closing the room sends everyone home.</Text>}
         </Panel>
       }
     />

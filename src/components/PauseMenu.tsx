@@ -7,10 +7,12 @@ interface PauseMenuProps {
   onQuit: () => void;
   /** Online matches keep running behind the menu; say so. */
   online?: boolean;
+  /** Overrides the quit button's label (e.g. "Close room" for the online host). */
+  quitLabel?: string;
 }
 
 /** Shown while the game is paused (single player), or as a menu over a running online match. */
-export function PauseMenu({ onResume, onRestart, onQuit, online = false }: PauseMenuProps) {
+export function PauseMenu({ onResume, onRestart, onQuit, online = false, quitLabel }: PauseMenuProps) {
   return (
     <View style={styles.backdrop}>
       <View style={styles.panel}>
@@ -18,7 +20,7 @@ export function PauseMenu({ onResume, onRestart, onQuit, online = false }: Pause
         {online && <Text style={styles.note}>The match keeps going while this menu is open.</Text>}
         <MenuButton label={online ? "Back to the game" : "Resume"} onPress={onResume} primary />
         {onRestart && <MenuButton label="Restart stage" onPress={onRestart} />}
-        <MenuButton label={online ? "Leave match" : "Quit to menu"} onPress={onQuit} />
+        <MenuButton label={quitLabel ?? (online ? "Leave match" : "Quit to menu")} onPress={onQuit} />
       </View>
     </View>
   );

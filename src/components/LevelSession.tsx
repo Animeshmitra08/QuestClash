@@ -1,5 +1,5 @@
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { type ReactNode, useEffect, useState, useSyncExternalStore } from "react";
 import { ActivityIndicator, AppState, BackHandler, StyleSheet, Text, View } from "react-native";
 
 import { DamageFlash } from "@/components/DamageFlash";
@@ -19,7 +19,7 @@ import { AudioManager } from "@/systems/AudioManager";
 import { getObjectiveProgress } from "@/systems/ObjectiveSystem";
 import { calculateScore, resolveScoring } from "@/systems/ScoreSystem";
 import type { Interactable } from "@/types/game";
-import type { InteractionResult } from "@/types/state";
+import type { InteractionResult, MatchState } from "@/types/state";
 
 /** A panel opened by using an object (message or puzzle). */
 type OpenDialog = Exclude<InteractionResult, { type: "none" }>;
@@ -32,17 +32,30 @@ interface LevelSessionProps {
   /** Present only if the level has a next level (and, online, for the host). */
   onNextLevel?: () => void;
   onQuit: () => void;
+  /** Label for leaving (menus and end screens). Defaults to "Leave room" online, "Main menu" offline. */
+  exitLabel?: string;
   /** Online: a connection problem to show over the game ("Reconnecting…"), or null. */
   connectionNotice?: string | null;
   /** Online, not the host: shown on the end-of-level screens. */
   waitingNote?: string;
+  /** Replaces the end-of-level dialogs once the match is over (online: results and leaderboard). */
+  renderResults?: (state: MatchState) => ReactNode;
 }
 
 /**
  * One attempt at one level: the 3D scene plus HUD, dialogs and menus. Works the
  * same for single player and online: everything goes through the MatchSource.
  */
-export function LevelSession({ source, onRestart, onNextLevel, onQuit, connectionNotice, waitingNote }: LevelSessionProps) {
+export function LevelSession({
+  source,
+  onRestart,
+  onNextLevel,
+  onQuit,
+  exitLabel = source.online ? "Leave room" : "Main menu",
+  connectionNotice,
+  waitingNote,
+  renderResults,
+}: LevelSessionProps) {
   const { level } = source;
   const [input] = useState(() => new PlayerInput());
   const [audio] = useState(() => new AudioManager());
@@ -109,8 +122,6 @@ export function LevelSession({ source, onRestart, onNextLevel, onQuit, connectio
     return correct;
   };
 
-  const exitLabel = source.online ? "Leave room" : "Main menu";
-
   return (
     <View style={[styles.container, { backgroundColor: level.theme.background }]}>
       <StatusBar hidden />
@@ -176,10 +187,13 @@ export function LevelSession({ source, onRestart, onNextLevel, onQuit, connectio
           onResume={closeMenu}
           onRestart={source.canPause ? onRestart : undefined}
           onQuit={onQuit}
+          quitLabel={source.online ? exitLabel : undefined}
         />
       )}
 
-      {game.status === "completed" && (
+      {finished && renderResults?.(game)}
+
+      {game.status === "completed" && !renderResults && (
         <StageCompleteDialog
           levelName={level.name}
           elapsedSeconds={game.elapsedSeconds}
@@ -192,7 +206,7 @@ export function LevelSession({ source, onRestart, onNextLevel, onQuit, connectio
         />
       )}
 
-      {game.status === "failed" && (
+      {game.status === "failed" && !renderResults && (
         <StageFailedDialog
           levelName={level.name}
           reason={game.failReason ?? "timeUp"}

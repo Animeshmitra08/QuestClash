@@ -92,7 +92,9 @@ const styles = StyleSheet.create({
   },
   buttons: {
     flexDirection: "row",
-    gap: 12,
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 10,
     marginTop: 20,
   },
   button: {

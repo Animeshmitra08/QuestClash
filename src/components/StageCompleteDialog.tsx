@@ -181,8 +181,9 @@ const styles = StyleSheet.create({
   },
   buttons: {
     flexDirection: "row",
+    flexWrap: "wrap",
     justifyContent: "center",
-    gap: 12,
+    gap: 10,
     marginTop: 14,
   },
   button: {
