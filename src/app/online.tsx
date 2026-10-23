@@ -2,28 +2,29 @@ import { router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { type ReactNode, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from "react-native";
-import Animated, { FadeIn, FadeInLeft, FadeInRight, LinearTransition, useReducedMotion, ZoomIn } from "react-native-reanimated";
+import Animated, { FadeIn, FadeInLeft, FadeInRight, LinearTransition, useReducedMotion } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { LevelSession } from "@/components/LevelSession";
 import { OnlineResults } from "@/components/OnlineResults";
 import { GameButton } from "@/components/ui/GameButton";
-import { ErrorBanner, Eyebrow, InfoNote, Panel } from "@/components/ui/Panel";
+import { NoticeDialog } from "@/components/ui/NoticeDialog";
+import { Eyebrow, InfoNote, Panel } from "@/components/ui/Panel";
 import { SceneryBackground } from "@/components/ui/SceneryBackground";
 import { COLORS, RADIUS } from "@/components/ui/theme";
 import { usePressScale } from "@/components/ui/usePressScale";
 import { playerColor } from "@/game/Player";
 import { LEVEL_CATALOG } from "@/levels/catalog";
 import { GAME_SERVER_URL } from "@/net/config";
-import { type LobbyPlayer, OnlineSession, type SessionView } from "@/net/OnlineSession";
-import { MAX_NAME_LENGTH, MAX_ROOM_PLAYERS, NET_ERRORS, ROOM_CODE_LENGTH } from "@/net/protocol";
+import { type LobbyPlayer, OnlineSession, REJOIN_MID_MATCH, type SessionView } from "@/net/OnlineSession";
+import { MAX_NAME_LENGTH, MAX_ROOM_PLAYERS, NET_ERRORS, type NetErrorCode, ROOM_CODE_LENGTH } from "@/net/protocol";
 
 /** After this long "connecting", explain that a sleeping server can take a while to wake. */
 const SLOW_CONNECT_MS = 5000;
 
-const PULSE = { from: { opacity: 0.35, transform: [{ scale: 0.8 }] }, to: { opacity: 1, transform: [{ scale: 1.15 }] } };
+// No springs, zooms or scaling on this screen: things fade, nothing bounces.
+const PULSE = { from: { opacity: 0.35 }, to: { opacity: 1 } };
 const BLINK = { "0%": { opacity: 1 }, "50%": { opacity: 0 }, "100%": { opacity: 1 } };
-const BOUNCE = { "0%": { opacity: 0.25 }, "30%": { opacity: 1 }, "60%": { opacity: 0.25 }, "100%": { opacity: 0.25 } };
 
 /**
  * Online play: create or join a room by code, wait in the lobby until everyone is
@@ -81,24 +82,50 @@ export default function OnlineScreen() {
       <StatusBar hidden />
       <SceneryBackground variant="night" />
       {inRoom ? <Lobby session={session} view={view} onLeave={leaveRoom} /> : <JoinForm session={session} view={view} />}
+      {view.error && <NoticeDialog {...describeError(view.error)} onClose={() => session.clearError()} />}
     </View>
   );
+}
+
+const ERROR_TITLES: Record<NetErrorCode, string> = {
+  roomNotFound: "Room not found",
+  roomFull: "Room is full",
+  matchInProgress: "Match in progress",
+  invalidName: "Check your name",
+  invalidLevel: "Level not found",
+  notHost: "Host only",
+  wrongPhase: "Not right now",
+  versionMismatch: "Update needed",
+  serverUnreachable: "Can't connect",
+  connectionLost: "Connection lost",
+  requestTimedOut: "Server not responding",
+  hostLeft: "Room closed",
+};
+
+/** Title and text for the error dialog. Messages the app doesn't know (raw server text) get a general title. */
+function describeError(message: string): { title: string; message: string; hint?: string } {
+  if (message === REJOIN_MID_MATCH) return { title: ERROR_TITLES.matchInProgress, message };
+  const code = (Object.keys(NET_ERRORS) as NetErrorCode[]).find((key) => NET_ERRORS[key] === message);
+  if (code === "matchInProgress") return { title: ERROR_TITLES.matchInProgress, message, hint: "You can join once this match ends." };
+  return { title: code ? ERROR_TITLES[code] : "Something went wrong", message };
 }
 
 // --- Join / create ----------------------------------------------------------------------
 
 function JoinForm({ session, view }: { session: OnlineSession; view: SessionView }) {
-  const [name, setName] = useState("");
+  const [name, setName] = useState(() => view.rejoin?.name ?? "");
   const [code, setCode] = useState("");
-  const [pending, setPending] = useState<"create" | "join" | null>(null);
+  const [pending, setPending] = useState<"create" | "join" | "rejoin" | null>(null);
   const busy = view.status === "connecting";
   const slow = useSlowFlag(busy);
   const canCreate = name.trim().length > 0 && !busy;
   const canJoin = canCreate && code.trim().length === ROOM_CODE_LENGTH;
 
-  const run = (action: "create" | "join") => {
+  const run = (action: "create" | "join" | "rejoin") => {
     setPending(action);
-    void (action === "create" ? session.create(name) : session.join(code, name)).finally(() => setPending(null));
+    const attempt =
+      action === "create" ? session.create(name) : action === "join" ? session.join(code, name) : session.rejoin();
+    void attempt.finally(() => setPending(null));
   };
 
   return (
@@ -115,6 +142,27 @@ function JoinForm({ session, view }: { session: OnlineSession; view: SessionView
           <Animated.Text entering={FadeInLeft.delay(180).duration(600)} style={styles.subtitle}>
             Team up with up to {MAX_ROOM_PLAYERS} players in real time.
           </Animated.Text>
+
+          {view.rejoin && (
+            <Animated.View entering={FadeIn.duration(300)} style={styles.rejoinCard}>
+              <View style={styles.rejoinInfo}>
+                <Text style={styles.rejoinTitle}>Back to your party?</Text>
+                <Text style={styles.rejoinText} numberOfLines={2}>
+                  You left room {view.rejoin.code}. Rejoin as {view.rejoin.name}.
+                </Text>
+              </View>
+              <GameButton
+                label="Rejoin"
+                icon="↺"
+                variant="success"
+                bouncy={false}
+                onPress={() => run("rejoin")}
+                disabled={busy}
+                loading={busy && pending === "rejoin"}
+                accessibilityLabel={`Rejoin room ${view.rejoin.code}`}
+              />
+            </Animated.View>
+          )}
 
           <Animated.View entering={FadeInLeft.delay(260).duration(600)} style={styles.field}>
             <View style={styles.fieldHeader}>
@@ -140,18 +188,18 @@ function JoinForm({ session, view }: { session: OnlineSession; view: SessionView
             <ServerChip state={busy ? "busy" : view.error === NET_ERRORS.serverUnreachable ? "error" : "idle"} />
           </Animated.View>
 
-          {view.error && <ErrorBanner message={view.error} />}
           {busy && slow && <InfoNote message="Waking the server up… the first connection can take up to a minute." />}
         </>
       }
       right={
-        <Panel style={styles.sidePanel} delay={200}>
+        <Panel style={styles.sidePanel} delay={200} bouncy={false}>
           <Text style={styles.sectionTitle}>Host a room</Text>
           <Text style={styles.sectionText}>Create a room, then share its code with your friends.</Text>
           <GameButton
             label="Create room"
             icon="✦"
             shimmer
+            bouncy={false}
             onPress={() => run("create")}
             disabled={!canCreate}
             loading={busy && pending === "create"}
@@ -169,6 +217,7 @@ function JoinForm({ session, view }: { session: OnlineSession; view: SessionView
             label="Join room"
             icon="➜"
             variant="secondary"
+            bouncy={false}
             onPress={() => run("join")}
             disabled={!canJoin}
             loading={busy && pending === "join"}
@@ -209,7 +258,7 @@ function CodeInput({ value, onChange }: { value: string; onChange: (code: string
         return (
           <View key={index} style={[styles.codeBox, char && styles.codeBoxFilled, active && styles.codeBoxActive]}>
             {char ? (
-              <Animated.Text key={char} entering={ZoomIn.duration(160)} style={styles.codeChar}>
+              <Animated.Text key={char} entering={FadeIn.duration(160)} style={styles.codeChar}>
                 {char}
               </Animated.Text>
             ) : (
@@ -301,14 +350,14 @@ function Lobby({ session, view, onLeave }: { session: OnlineSession; view: Sessi
 
           <View style={styles.codeTiles} accessible accessibilityLabel={`Room code ${[...code].join(" ")}`}>
             {[...code].map((char, index) => (
-              <Animated.View key={`${index}-${char}`} entering={ZoomIn.delay(120 + index * 70).springify().damping(12)} style={styles.codeTile}>
+              <Animated.View key={`${index}-${char}`} entering={FadeIn.delay(120 + index * 70).duration(300)} style={styles.codeTile}>
                 <Text style={styles.codeTileChar}>{char}</Text>
               </Animated.View>
             ))}
           </View>
 
           <Animated.View entering={FadeIn.delay(500)} style={styles.shareRow}>
-            <GameButton label="Share code" icon="↗" variant="secondary" onPress={shareCode} />
+            <GameButton label="Share code" icon="↗" variant="secondary" bouncy={false} onPress={shareCode} />
             <Text style={[styles.sectionText, styles.shareText]}>Friends enter this code under “Join a friend”.</Text>
           </Animated.View>
 
@@ -332,11 +381,10 @@ function Lobby({ session, view, onLeave }: { session: OnlineSession; view: Sessi
             </View>
           )}
 
-          {view.error && <ErrorBanner message={view.error} />}
         </>
       }
       right={
-        <Panel style={styles.sidePanel} delay={150}>
+        <Panel style={styles.sidePanel} delay={150} bouncy={false}>
           <View style={styles.partyHeader}>
             <Text style={styles.sectionTitle}>Party</Text>
             <Text style={styles.partyCount}>
@@ -377,13 +425,26 @@ function Lobby({ session, view, onLeave }: { session: OnlineSession; view: Sessi
             <>
               <Text style={styles.hint}>The match starts when everyone is ready.</Text>
               {me?.ready ? (
-                <GameButton label="Ready! Tap to cancel" icon="✓" variant="success" onPress={() => session.setReady(false)} />
+                <GameButton
+                  label="Ready! Tap to cancel"
+                  icon="✓"
+                  variant="success"
+                  bouncy={false}
+                  onPress={() => session.setReady(false)}
+                />
               ) : (
-                <GameButton label="I'm ready" icon="⚑" shimmer onPress={() => session.setReady(true)} disabled={reconnecting} />
+                <GameButton
+                  label="I'm ready"
+                  icon="⚑"
+                  shimmer
+                  bouncy={false}
+                  onPress={() => session.setReady(true)}
+                  disabled={reconnecting}
+                />
               )}
             </>
           )}
-          <GameButton label={view.isHost ? "Close room" : "Leave room"} variant="ghost" onPress={onLeave} />
+          <GameButton label={view.isHost ? "Close room" : "Leave room"} variant="ghost" bouncy={false} onPress={onLeave} />
           {view.isHost && <Text style={styles.hint}>Closing the room sends everyone home.</Text>}
         </Panel>
       }
@@ -414,7 +475,7 @@ function StatusPill({ reconnecting }: { reconnecting: boolean }) {
 }
 
 function LevelChoice({ name, number, selected, onPress }: { name: string; number: number; selected: boolean; onPress: () => void }) {
-  const press = usePressScale(0.96);
+  const press = usePressScale(0.96, false);
   return (
     <Animated.View style={press.style}>
       <Pressable
@@ -439,7 +500,7 @@ function PlayerRow({ player, index }: { player: LobbyPlayer; index: number }) {
   return (
     <Animated.View
       entering={FadeInRight.delay(index * 60).duration(400)}
-      layout={LinearTransition.springify().damping(18)}
+      layout={LinearTransition}
       style={[styles.playerRow, player.isYou && styles.playerRowYou]}
     >
       <View
@@ -462,7 +523,7 @@ function PlayerRow({ player, index }: { player: LobbyPlayer; index: number }) {
           {player.connected && <PingBadge ms={player.ping} />}
         </View>
       </View>
-      <Animated.View key={status} entering={ZoomIn.duration(220)} style={[styles.statusBadge, STATUS_BADGES[status].box]}>
+      <Animated.View key={status} entering={FadeIn.duration(220)} style={[styles.statusBadge, STATUS_BADGES[status].box]}>
         <Text style={[styles.statusBadgeText, STATUS_BADGES[status].text]}>{STATUS_BADGES[status].label}</Text>
       </Animated.View>
     </Animated.View>
@@ -489,29 +550,12 @@ function PingBadge({ ms }: { ms: number | null }) {
 }
 
 function WaitingRow() {
-  const animate = !useReducedMotion();
   return (
     <Animated.View entering={FadeIn.delay(300)} layout={LinearTransition} style={styles.waitingRow}>
       <View style={styles.waitingAvatar}>
         <Text style={styles.waitingPlus}>+</Text>
       </View>
-      <Text style={styles.waitingText}>Waiting for players</Text>
-      <View style={styles.dots}>
-        {[0, 1, 2].map((dot) => (
-          <Animated.View
-            key={dot}
-            style={[
-              styles.waitingDot,
-              animate && {
-                animationName: BOUNCE,
-                animationDuration: 1200,
-                animationDelay: dot * 180,
-                animationIterationCount: "infinite",
-              },
-            ]}
-          />
-        ))}
-      </View>
+      <Text style={styles.waitingText}>Waiting for players…</Text>
     </Animated.View>
   );
 }
@@ -541,7 +585,7 @@ function ScreenColumns({ left, right }: { left: ReactNode; right: ReactNode }) {
 }
 
 function BackButton({ onPress }: { onPress: () => void }) {
-  const press = usePressScale(0.9);
+  const press = usePressScale(0.9, false);
   return (
     <Animated.View style={press.style}>
       <Pressable style={styles.backButton} onPress={onPress} {...press.handlers} accessibilityRole="button" accessibilityLabel="Back">
@@ -707,6 +751,30 @@ const styles = StyleSheet.create({
     color: COLORS.textDim,
     fontSize: 12,
     textAlign: "center",
+  },
+  rejoinCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 12,
+    marginTop: 4,
+    borderRadius: RADIUS.md,
+    backgroundColor: "rgba(79, 227, 168, 0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(79, 227, 168, 0.45)",
+  },
+  rejoinInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  rejoinTitle: {
+    color: COLORS.text,
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  rejoinText: {
+    color: COLORS.textMuted,
+    fontSize: 13,
   },
   divider: {
     flexDirection: "row",
@@ -1002,16 +1070,5 @@ const styles = StyleSheet.create({
     color: COLORS.textDim,
     fontSize: 13,
     fontWeight: "600",
-  },
-  dots: {
-    flexDirection: "row",
-    gap: 4,
-    paddingRight: 6,
-  },
-  waitingDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: COLORS.textMuted,
   },
 });

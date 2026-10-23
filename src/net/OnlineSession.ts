@@ -50,6 +50,8 @@ export interface SessionView {
   error: string | null;
   /** The match being played (null in the lobby). Changes identity for every new match. */
   match: OnlineMatch | null;
+  /** The room we just left (and the name we used there), while it may still be open to rejoin. */
+  rejoin: { code: string; name: string } | null;
 }
 
 const INITIAL_VIEW: SessionView = {
@@ -62,12 +64,23 @@ const INITIAL_VIEW: SessionView = {
   isHost: false,
   error: null,
   match: null,
+  rejoin: null,
 };
 
 type SdkRoom = Room<unknown, SyncedRoomState>;
 
 /** How long create/join waits for the first lobby state before carrying on anyway. */
 const FIRST_SYNC_TIMEOUT_MS = 3000;
+
+/**
+ * The room to offer rejoining, kept outside any one session: the online screen (and
+ * its session) goes away when the player backs out of it, and the offer should still
+ * be there when they come back.
+ */
+let rememberedRejoin: SessionView["rejoin"] = null;
+
+/** Shown instead of NET_ERRORS.matchInProgress when a rejoin is refused mid-match. */
+export const REJOIN_MID_MATCH = "Your party is in the middle of a match. Tap Rejoin again once it ends.";
 
 /** Turn a failed create/join into something a player can act on. */
 export function describeJoinError(error: unknown): string {
@@ -99,10 +112,13 @@ export class OnlineSession {
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   /** Our own latest round trip, shown straight away rather than after the server echoes it back. */
   private localPing: number | null = null;
+  /** The name we joined the current room with, so we can offer to rejoin as the same player. */
+  private playerName = "";
 
   constructor(serverUrl: string) {
     this.serverUrl = serverUrl;
     this.client = new Client(serverUrl);
+    this.view = { ...INITIAL_VIEW, rejoin: rememberedRejoin };
   }
 
   // --- For React ----------------------------------------------------------------
@@ -116,6 +132,7 @@ export class OnlineSession {
 
   private setView(changes: Partial<SessionView>) {
     this.view = { ...this.view, ...changes };
+    if ("rejoin" in changes) rememberedRejoin = this.view.rejoin;
     this.listeners.forEach((listener) => listener());
   }
 
@@ -124,7 +141,7 @@ export class OnlineSession {
   /** Create a room and become its host. Resolves false (with `view.error` set) on failure. */
   create(name: string, levelId?: string): Promise<boolean> {
     const options: CreateRoomOptions = { name, levelId, protocolVersion: PROTOCOL_VERSION };
-    return this.connect(`create "${ROOM_NAME}"`, () =>
+    return this.connect(name,`create "${ROOM_NAME}"`, () =>
       this.client.create<SyncedRoomState>(ROOM_NAME, options) as Promise<SdkRoom>,
     );
   }
@@ -133,13 +150,28 @@ export class OnlineSession {
   join(code: string, name: string): Promise<boolean> {
     const options: JoinRoomOptions = { name, protocolVersion: PROTOCOL_VERSION };
     const roomCode = normalizeRoomCode(code);
-    return this.connect(`join ${roomCode}`, () =>
+    return this.connect(name, `join ${roomCode}`, () =>
       this.client.joinById<SyncedRoomState>(roomCode, options) as Promise<SdkRoom>,
     );
   }
 
-  private async connect(action: string, open: () => Promise<SdkRoom>): Promise<boolean> {
+  /**
+   * Join the room we last left again, under the same name. Forgets it if the room has
+   * closed; keeps it if a match is being played there, as joining opens again when it ends.
+   */
+  async rejoin(): Promise<boolean> {
+    const last = this.view.rejoin;
+    if (!last) return false;
+    const joined = await this.join(last.code, last.name);
+    if (joined) return true;
+    if (this.view.error === NET_ERRORS.roomNotFound) this.setView({ rejoin: null });
+    if (this.view.error === NET_ERRORS.matchInProgress) this.setView({ error: REJOIN_MID_MATCH });
+    return false;
+  }
+
+  private async connect(name: string, action: string, open: () => Promise<SdkRoom>): Promise<boolean> {
     if (this.room) return true;
+    this.playerName = name;
     this.setView({ status: "connecting", error: null });
     const startedAt = Date.now();
     netLog.info(`${action}: connecting to ${this.serverUrl}`);
@@ -193,8 +225,10 @@ export class OnlineSession {
   /** Leave the room on purpose (no reconnection). */
   async leave() {
     const room = this.room;
+    const rejoin = room ? this.rejoinTarget() : this.view.rejoin;
+    if (room) netLog.info(`Leaving room ${room.roomId}${rejoin ? `; can rejoin as "${rejoin.name}"` : " (host: the room closes)"}`);
     this.detach();
-    this.setView({ ...INITIAL_VIEW });
+    this.setView({ ...INITIAL_VIEW, rejoin });
     if (room) await room.leave(true).catch(() => {});
   }
 
@@ -216,7 +250,7 @@ export class OnlineSession {
     this.room = room;
     this.lobbyKey = "";
     // The room id is the code, known immediately; the rest arrives with the first state sync.
-    this.setView({ status: "connected", localId: room.sessionId, code: room.roomId, error: null });
+    this.setView({ status: "connected", localId: room.sessionId, code: room.roomId, error: null, rejoin: null });
 
     const link: RoomLink = {
       get sessionId() {
@@ -272,6 +306,7 @@ export class OnlineSession {
       (consented || hostLeft ? netLog.info : netLog.warn)(
         `Left room ${room.roomId} (code ${code}${reason ? `, ${reason}` : ""})${hostLeft ? ": the host left" : ""}`,
       );
+      const rejoin = hostLeft || consented ? null : this.rejoinTarget();
       this.stopPing();
       this.view.match?.dispose();
       this.room = null;
@@ -280,6 +315,7 @@ export class OnlineSession {
         ...INITIAL_VIEW,
         status: "closed",
         error: hostLeft ? NET_ERRORS.hostLeft : consented ? null : NET_ERRORS.connectionLost,
+        rejoin,
       });
     });
     room.onError((code: number, message?: string) => {
@@ -300,6 +336,12 @@ export class OnlineSession {
       if (room.connection.isOpen) room.send("reportPing", { ms: this.localPing });
       this.publishLobby();
     });
+  }
+
+  /** The room we're in, to offer rejoining after we leave it. None for the host: the room closes when they go. */
+  private rejoinTarget(): SessionView["rejoin"] {
+    const code = this.view.code;
+    return code && !this.view.isHost ? { code, name: this.playerName } : null;
   }
 
   private detach() {

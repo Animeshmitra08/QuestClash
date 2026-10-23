@@ -1,13 +1,24 @@
 import type { ReactNode } from "react";
 import { type StyleProp, StyleSheet, Text, View, type ViewStyle } from "react-native";
-import Animated, { FadeIn, FadeInDown, FadeOut } from "react-native-reanimated";
+import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
 
 import { COLORS, RADIUS } from "./theme";
 
-/** A frosted card floating over the scenery. Fades and rises in when it mounts. */
-export function Panel({ children, style, delay = 0 }: { children: ReactNode; style?: StyleProp<ViewStyle>; delay?: number }) {
+/** A frosted card floating over the scenery. Fades and rises in when it mounts (with a spring unless `bouncy` is false). */
+export function Panel({
+  children,
+  style,
+  delay = 0,
+  bouncy = true,
+}: {
+  children: ReactNode;
+  style?: StyleProp<ViewStyle>;
+  delay?: number;
+  bouncy?: boolean;
+}) {
+  const entering = FadeInDown.delay(delay).duration(500);
   return (
-    <Animated.View entering={FadeInDown.delay(delay).duration(500).springify().damping(18)} style={[styles.panel, style]}>
+    <Animated.View entering={bouncy ? entering.springify().damping(18) : entering} style={[styles.panel, style]}>
       {children}
     </Animated.View>
   );
@@ -20,23 +31,6 @@ export function Eyebrow({ children, color = COLORS.gold }: { children: string; c
       <View style={[styles.eyebrowBar, { backgroundColor: color, boxShadow: `0 0 8px ${color}` }]} />
       <Text style={[styles.eyebrow, { color }]}>{children}</Text>
     </View>
-  );
-}
-
-/** A red notice that slides in; for connection and request errors. */
-export function ErrorBanner({ message }: { message: string }) {
-  return (
-    <Animated.View
-      key={message}
-      entering={FadeInDown.duration(250)}
-      exiting={FadeOut.duration(200)}
-      style={styles.errorBanner}
-      accessibilityLiveRegion="polite"
-      accessibilityRole="alert"
-    >
-      <Text style={styles.errorIcon}>!</Text>
-      <Text style={styles.errorText}>{message}</Text>
-    </Animated.View>
   );
 }
 
@@ -73,35 +67,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "800",
     letterSpacing: 2.4,
-  },
-  errorBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: RADIUS.sm,
-    backgroundColor: "rgba(255, 90, 80, 0.14)",
-    borderWidth: 1,
-    borderColor: "rgba(255, 125, 110, 0.5)",
-  },
-  errorIcon: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    overflow: "hidden",
-    textAlign: "center",
-    lineHeight: 20,
-    fontSize: 13,
-    fontWeight: "900",
-    color: COLORS.ink,
-    backgroundColor: COLORS.danger,
-  },
-  errorText: {
-    flex: 1,
-    color: "#ffd9d3",
-    fontSize: 13,
-    fontWeight: "600",
   },
   infoNote: {
     paddingVertical: 8,

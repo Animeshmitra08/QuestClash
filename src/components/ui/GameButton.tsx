@@ -19,6 +19,8 @@ interface GameButtonProps {
   loading?: boolean;
   /** A light sweep across the button, to draw the eye to the main action. */
   shimmer?: boolean;
+  /** Spring when pressed (default). False eases in and out with no overshoot. */
+  bouncy?: boolean;
   accessibilityLabel?: string;
   style?: StyleProp<ViewStyle>;
 }
@@ -54,11 +56,12 @@ export function GameButton({
   disabled = false,
   loading = false,
   shimmer = false,
+  bouncy = true,
   accessibilityLabel,
   style,
 }: GameButtonProps) {
   const reduceMotion = useReducedMotion();
-  const press = usePressScale();
+  const press = usePressScale(0.95, bouncy);
   const [width, setWidth] = useState(0);
   const inactive = disabled || loading;
   const darkText = variant === "primary" || variant === "success";
