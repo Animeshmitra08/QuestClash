@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { PlayerInput } from "@/game/PlayerInput";
@@ -7,7 +7,6 @@ import { ActionButton } from "./ActionButton";
 import { VirtualJoystick } from "./VirtualJoystick";
 
 const EDGE_MARGIN = 16;
-const ACTION_BUTTON_SIZE = 84;
 
 interface GameControlsProps {
   input: PlayerInput;
@@ -34,20 +33,9 @@ export function GameControls({ input, actionPrompt }: GameControlsProps) {
         onRelease={() => input.clearMove()}
       />
 
-      {actionPrompt && (
-        <View
-          style={[
-            styles.prompt,
-            { right: actionRight, bottom: actionBottom + ACTION_BUTTON_SIZE + 10 },
-          ]}
-          pointerEvents="none"
-        >
-          <Text style={styles.promptText}>{actionPrompt}</Text>
-        </View>
-      )}
-
       <ActionButton
-        label="USE"
+        // Names what it will do ("READ", "PICK UP"…) while something is in reach.
+        label={(actionPrompt ?? "Use").toUpperCase()}
         accessibilityLabel={actionPrompt ?? "Interact"}
         style={[
           styles.action,
@@ -73,21 +61,5 @@ const styles = StyleSheet.create({
   actionIdle: {
     // Still pressable, just visibly "nothing to use here".
     backgroundColor: "#a08a52",
-  },
-  prompt: {
-    position: "absolute",
-    minWidth: ACTION_BUTTON_SIZE,
-    alignItems: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 14,
-    backgroundColor: "rgba(27, 23, 18, 0.8)",
-    borderWidth: 1,
-    borderColor: "#f2c230",
-  },
-  promptText: {
-    color: "#f2e6d0",
-    fontSize: 15,
-    fontWeight: "700",
   },
 });

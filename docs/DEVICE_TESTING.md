@@ -23,16 +23,22 @@ Tick each item off. If anything differs, note what you saw.
 - [ ] **Start Game** opens the game. A loading spinner appears, then the temple.
 
 ### HUD and controls
-- [ ] Top bar shows the inventory (3 empty slots), the objective "Find the key to the temple door", the timer counting up from 0:00, the score ★ 0, and a pause button.
+- [ ] Top bar shows the inventory (3 empty slots), the objective "Search the woods for the temple key", the timer counting up from 0:00, the score ★ 0, and a pause button.
 - [ ] The joystick moves the player in the direction you push. Pushing it part-way walks slower.
 - [ ] You can hold the joystick and press USE at the same time.
-- [ ] The player slides along walls and can't pass through walls, pillars, crates, the tablet or the sun dial.
+- [ ] The player slides along walls and can't pass through trees, rocks, bushes, logs, stumps, the forest edge, walls, pillars, the tablet or the sun dial.
+
+### Forest
+- [ ] The temple starts in a sunny open wood: grass with patches of earth, round trees, pines, grey rocks, bushes, fallen logs and stumps, and a dense tree line all round the edge.
+- [ ] Walking behind a tree (with the tree between you and the camera) makes it see-through until you step out from behind it. You're never hidden.
+- [ ] The frame rate stays smooth while walking across the whole map, including along the tree lines.
+- [ ] Neighbouring trees look a little different (size, shape, shade), and the forest looks the same every time you play.
 
 ### Puzzle sequence
-- [ ] **Key** (behind the crates, bottom-right): the "Pick up" prompt appears. Picking it up removes the key, shows "You found the Bronze Key!", adds it to a slot, gives +100 points, and changes the objective to "Find a clue to the sun dial".
-- [ ] **Door before the puzzle:** the "Sealed Door" message appears and the door stays shut.
-- [ ] **Tablet** (left wall): "Read" shows the clue. +50 points. The objective changes to "Set the sun dial to break the seal".
-- [ ] **Sun dial** (right of the door): a wrong answer shows a hint and costs −25. **Three** solves it: "The seal of the suns breaks!", +200, and the dial glows.
+- [ ] **Key** (among boulders in the south-east of the woods, right of the start): the USE button changes to "PICK UP" (and back to "USE" when you walk away). Picking it up removes the key, shows "You found the Bronze Key!", adds it to a slot, gives +100 points, and changes the objective to "Find a clue to the sun dial".
+- [ ] **Door before the puzzle** (stone gate in the thicket, straight north of the start): the "Sealed Door" message appears and the door stays shut.
+- [ ] **Tablet** (between ruined pillars in the west of the woods): "Read" shows the clue. +50 points. The objective changes to "Set the sun dial by the gate to break the seal".
+- [ ] **Sun dial** (just south-east of the gate): a wrong answer shows a hint and costs −25. **Three** solves it: "The seal of the suns breaks!", +200, and the dial glows.
 - [ ] **Door:** it sinks into the floor, the key leaves the inventory, +100 points, and the objective becomes "Cross the spikes and reach the exit".
 - [ ] **Trap:** the spikes rattle, rise and retract on a cycle. Getting hit flashes the screen red, shows a message, costs −50, and returns you just inside the door.
 - [ ] **Exit:** the glowing green archway shows **Stage Complete!** with your time, the score breakdown and the total.
@@ -40,11 +46,11 @@ Tick each item off. If anything differs, note what you saw.
 ### Levels and transitions
 - [ ] The start screen lists both levels. Tapping one starts that level.
 - [ ] After the temple, **Level Complete!** shows stars and a **Next level** button, which opens the Moonlit Cloister.
-- [ ] Cloister: blue moonlit colours and a tiled stone floor. If the floor is plain grey-blue, the texture failed to load; please report it, the level should still play.
-- [ ] Cloister: the timer counts **down** from 2:00 and turns red in the last 15 s.
+- [ ] Cloister: a dark, blue moonlit pine forest with mossy patches on the ground, and a walled cloister north of the gate.
+- [ ] Cloister: the timer counts **down** from 3:30 and turns red in the last 15 s.
 - [ ] Cloister: the silver key opens the gate. Stepping into the dim exit before answering the altar shows "The moon gate is sealed…" once.
 - [ ] Cloister: after the altar is answered, the exit glows green and works. The completion screen has no **Next level** button (it's the last level).
-- [ ] Cloister: let the timer run out. **Out of time** appears, and **Try again** restarts at 2:00.
+- [ ] Cloister: let the timer run out. **Out of time** appears, and **Try again** restarts at 3:30.
 
 ### Online (two phones, server running; see README → Online multiplayer)
 - [ ] **Play online** shows the server address you set in `EXPO_PUBLIC_GAME_SERVER_URL`.

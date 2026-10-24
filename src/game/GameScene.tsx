@@ -82,7 +82,7 @@ export function GameScene({ source, input, onReady, onFocusChange, onInteract }:
       <directionalLight position={[...theme.sun.position]} intensity={theme.sun.intensity} color={theme.sun.color} />
 
       <GameClockContext value={clock}>
-        <Room level={level} />
+        <Room level={level} focus={movement.state.position} />
         <TriggerVisuals triggers={level.triggers} source={source} />
         <Interactables items={level.interactables} interaction={interaction} source={source} />
 

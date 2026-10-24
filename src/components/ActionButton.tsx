@@ -3,6 +3,8 @@ import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 
 const SIZE = 84;
+/** Labels up to this many characters (e.g. "USE", "OPEN", "READ") use the full font size. */
+const SHORT_LABEL = 4;
 /** Effectively "no limit": a long press still counts as one press. */
 const MAX_HOLD_MS = 60_000;
 
@@ -43,7 +45,15 @@ export function ActionButton({ label, accessibilityLabel, onPress, style }: Acti
         accessibilityRole="button"
         accessibilityLabel={accessibilityLabel}
       >
-        <Text style={styles.label}>{label}</Text>
+        {/* Short words keep the big size; longer ones ("INSPECT", "PICK UP") get smaller and may take two lines. */}
+        <Text
+          style={[styles.label, label.length > SHORT_LABEL && styles.labelLong]}
+          numberOfLines={2}
+          adjustsFontSizeToFit
+          minimumFontScale={0.7}
+        >
+          {label}
+        </Text>
       </Animated.View>
     </GestureDetector>
   );
@@ -56,6 +66,7 @@ const styles = StyleSheet.create({
     borderRadius: SIZE / 2,
     alignItems: "center",
     justifyContent: "center",
+    paddingHorizontal: 8,
     backgroundColor: "#f2c230",
     borderWidth: 3,
     borderColor: "rgba(27, 23, 18, 0.4)",
@@ -64,5 +75,10 @@ const styles = StyleSheet.create({
     color: "#1b1712",
     fontSize: 18,
     fontWeight: "800",
+    textAlign: "center",
+  },
+  labelLong: {
+    fontSize: 14,
+    lineHeight: 16,
   },
 });

@@ -19,17 +19,19 @@ src/
   session/               MatchSource: what the scene and HUD use, with LocalMatch (single player) and OnlineMatch behind it
   net/                   Online client: protocol.ts (shared with the server), OnlineSession (rooms, lobby, reconnection), OnlineMatch, config.ts
   levels/                Level configuration. Data only, no gameplay or rendering code (see docs/LEVELS.md)
-    temple.ts, cloister.ts The two levels
+    temple.ts, cloister.json The two levels (a level can be TypeScript or JSON)
+    level.schema.json      JSON Schema for level files, generated from LevelDefinition (npm run levels:schema)
     catalog.ts             Every level, in play order
     levelLoader.ts         Finds a level and validates it before it starts
     assets.ts              Asset registry: keys → files, loaded only when a level needs them
-    builders.ts            Layout helpers (walls, pillars, crates)
+    builders.ts            Layout helpers (forest edge, trees, rocks, logs…, walls, pillars, crates)
   game/                  The 3D scene (React Three Fiber). Rendering and per-frame glue only
     GameScene.tsx          The <Canvas>; creates the spatial systems and mounts everything below
     PlayerController       Each frame: input → movement, focus, USE presses
     StageController        Each frame: match rules at this device's player position; applies respawns
     CameraController       Fixed-angle follow camera
     Player, Room, Interactables, TriggerVisuals   Models in the level's theme; read state, never change it
+    Forest, forestModels   Trees, rocks, bushes, logs… as batched low-poly models; fades what's between the camera and the player
     AssetBoundary          Shows a plain fallback if an asset fails to load
     gameClock              useGameFrame: frame time that is 0 while paused
   systems/               Gameplay rules. Plain TypeScript, no React or Three.js

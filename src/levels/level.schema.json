@@ -1,0 +1,952 @@
+{
+  "$ref": "#/definitions/LevelDefinition",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "BlockKind": {
+      "description": "What a solid block looks like. Every kind collides as its rectangle (`center`, `size`); the kind only changes the model drawn there.\n\n- Built stone and wood, drawn as boxes filling the rectangle: \"wall\", \"pillar\", \"crate\".\n- Nature, drawn as low-poly models:   - \"tree\" (round, leafy) and \"pine\": the rectangle is the trunk you bump into (about     0.8 × 0.8); the crown spreads wider overhead. `height` is the whole tree.   - \"rock\", \"bush\", \"stump\": the model fills the rectangle, `height` tall.   - \"log\": a fallen trunk lying along the rectangle's longer side; `height` is its thickness.   - \"treeline\": a dense band of trees filling the rectangle, for the edge of the map or a     thicket nobody can pass. `height` is the typical tree height.",
+      "enum": [
+        "wall",
+        "pillar",
+        "crate",
+        "tree",
+        "pine",
+        "rock",
+        "bush",
+        "log",
+        "stump",
+        "treeline"
+      ],
+      "type": "string"
+    },
+    "DoorInteractable": {
+      "additionalProperties": false,
+      "description": "A door that opens once all its requirements are met.",
+      "properties": {
+        "collider": {
+          "$ref": "#/definitions/Vec2",
+          "description": "Footprint size if the object is solid; omit for objects the player can walk over."
+        },
+        "facing": {
+          "description": "Visual rotation around the y axis, in radians.",
+          "type": "number"
+        },
+        "height": {
+          "type": "number"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "door",
+          "type": "string"
+        },
+        "position": {
+          "$ref": "#/definitions/Vec2"
+        },
+        "prompt": {
+          "description": "Short verb shown on the USE button while this is in reach (in capitals), e.g. \"Read\". Keep it to one or two short words.",
+          "type": "string"
+        },
+        "reach": {
+          "description": "How close (center to center) the player must be to use it.",
+          "type": "number"
+        },
+        "requirements": {
+          "description": "Checked in order; the first unmet one's message is shown. Empty = opens on use.",
+          "items": {
+            "$ref": "#/definitions/DoorRequirement"
+          },
+          "type": "array"
+        },
+        "width": {
+          "description": "Door panel size: width along its face, and height. Thickness comes from `collider`.",
+          "type": "number"
+        }
+      },
+      "required": [
+        "facing",
+        "height",
+        "id",
+        "kind",
+        "position",
+        "prompt",
+        "reach",
+        "requirements",
+        "width"
+      ],
+      "type": "object"
+    },
+    "DoorRequirement": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "blockedMessage": {
+              "$ref": "#/definitions/MessageContent"
+            },
+            "consume": {
+              "description": "True if opening the door uses the item up (removes it from the inventory).",
+              "type": "boolean"
+            },
+            "itemId": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "item",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "itemId",
+            "consume",
+            "blockedMessage"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "blockedMessage": {
+              "$ref": "#/definitions/MessageContent"
+            },
+            "kind": {
+              "const": "puzzle",
+              "type": "string"
+            },
+            "puzzleId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "puzzleId",
+            "blockedMessage"
+          ],
+          "type": "object"
+        }
+      ],
+      "description": "One condition a door needs before it opens, with what to say when it isn't met."
+    },
+    "ExitTrigger": {
+      "additionalProperties": false,
+      "properties": {
+        "center": {
+          "$ref": "#/definitions/Vec2",
+          "description": "Center of the rectangle on the floor plane."
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "exit",
+          "type": "string"
+        },
+        "lockedMessage": {
+          "description": "Pop-up shown when the player steps in before `requires` is met.",
+          "type": "string"
+        },
+        "requires": {
+          "$ref": "#/definitions/ObjectiveCondition",
+          "description": "The exit only works once this is true. Omit for an always-open exit."
+        },
+        "size": {
+          "$ref": "#/definitions/Vec2",
+          "description": "Full width (x) and depth (z)."
+        }
+      },
+      "required": [
+        "center",
+        "id",
+        "kind",
+        "size"
+      ],
+      "type": "object"
+    },
+    "InspectInteractable": {
+      "additionalProperties": false,
+      "description": "Something the player can examine; shows a message.",
+      "properties": {
+        "collider": {
+          "$ref": "#/definitions/Vec2",
+          "description": "Footprint size if the object is solid; omit for objects the player can walk over."
+        },
+        "facing": {
+          "description": "Visual rotation around the y axis, in radians.",
+          "type": "number"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "inspect",
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "position": {
+          "$ref": "#/definitions/Vec2"
+        },
+        "prompt": {
+          "description": "Short verb shown on the USE button while this is in reach (in capitals), e.g. \"Read\". Keep it to one or two short words.",
+          "type": "string"
+        },
+        "reach": {
+          "description": "How close (center to center) the player must be to use it.",
+          "type": "number"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "facing",
+        "id",
+        "kind",
+        "message",
+        "position",
+        "prompt",
+        "reach",
+        "title"
+      ],
+      "type": "object"
+    },
+    "Interactable": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/InspectInteractable"
+        },
+        {
+          "$ref": "#/definitions/PickupInteractable"
+        },
+        {
+          "$ref": "#/definitions/DoorInteractable"
+        },
+        {
+          "$ref": "#/definitions/PuzzleInteractable"
+        }
+      ]
+    },
+    "ItemDefinition": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "type": "object"
+    },
+    "LevelAssets": {
+      "additionalProperties": false,
+      "description": "Optional art for a level, as keys into the asset registry (src/levels/assets.ts). Missing or unknown keys fall back to plain colours, so a level is always playable.",
+      "properties": {
+        "floorTexture": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "LevelBlock": {
+      "additionalProperties": false,
+      "description": "A solid, axis-aligned box standing on the floor. The same data is used to draw the box and for collision.",
+      "properties": {
+        "center": {
+          "$ref": "#/definitions/Vec2",
+          "description": "Center of the rectangle on the floor plane."
+        },
+        "height": {
+          "description": "Height above the floor.",
+          "type": "number"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/BlockKind"
+        },
+        "size": {
+          "$ref": "#/definitions/Vec2",
+          "description": "Full width (x) and depth (z)."
+        }
+      },
+      "required": [
+        "center",
+        "height",
+        "id",
+        "kind",
+        "size"
+      ],
+      "type": "object"
+    },
+    "LevelDefinition": {
+      "additionalProperties": false,
+      "properties": {
+        "assets": {
+          "$ref": "#/definitions/LevelAssets"
+        },
+        "blocks": {
+          "items": {
+            "$ref": "#/definitions/LevelBlock"
+          },
+          "type": "array"
+        },
+        "description": {
+          "description": "One line shown on the start screen.",
+          "type": "string"
+        },
+        "floorSize": {
+          "$ref": "#/definitions/Vec2",
+          "description": "Size of the floor plane (x by z), centered on the origin."
+        },
+        "id": {
+          "type": "string"
+        },
+        "interactables": {
+          "items": {
+            "$ref": "#/definitions/Interactable"
+          },
+          "type": "array"
+        },
+        "name": {
+          "type": "string"
+        },
+        "nextLevelId": {
+          "description": "Level that \"Next level\" leads to after completion, or null if this is the last one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "objectives": {
+          "description": "In the intended order. The HUD shows the first one not yet done.",
+          "items": {
+            "$ref": "#/definitions/ObjectiveDefinition"
+          },
+          "type": "array"
+        },
+        "playerSpawnId": {
+          "description": "Id of the spawn point where the player starts.",
+          "type": "string"
+        },
+        "puzzles": {
+          "items": {
+            "$ref": "#/definitions/PuzzleDefinition"
+          },
+          "type": "array"
+        },
+        "scoring": {
+          "additionalProperties": false,
+          "description": "Overrides for DEFAULT_SCORING.",
+          "properties": {
+            "clueRead": {
+              "type": "number"
+            },
+            "doorOpened": {
+              "type": "number"
+            },
+            "exitReached": {
+              "type": "number"
+            },
+            "itemFound": {
+              "type": "number"
+            },
+            "parTimeSeconds": {
+              "description": "Finishing faster than this earns a bonus; slower earns none.",
+              "type": "number"
+            },
+            "perTrapHit": {
+              "type": "number"
+            },
+            "perWrongAnswer": {
+              "type": "number"
+            },
+            "puzzleSolved": {
+              "type": "number"
+            },
+            "starThresholds": {
+              "description": "Minimum final score for 1, 2 and 3 stars, in increasing order.",
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "timeBonusPerSecond": {
+              "type": "number"
+            }
+          },
+          "type": "object"
+        },
+        "spawnPoints": {
+          "items": {
+            "$ref": "#/definitions/SpawnPointDefinition"
+          },
+          "type": "array"
+        },
+        "theme": {
+          "$ref": "#/definitions/LevelTheme"
+        },
+        "timeLimitSeconds": {
+          "description": "Running out of time fails the level. Omit for no limit.",
+          "type": "number"
+        },
+        "triggers": {
+          "items": {
+            "$ref": "#/definitions/TriggerZone"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "description",
+        "floorSize",
+        "blocks",
+        "theme",
+        "spawnPoints",
+        "playerSpawnId",
+        "interactables",
+        "triggers",
+        "puzzles",
+        "objectives",
+        "nextLevelId"
+      ],
+      "type": "object"
+    },
+    "LevelTheme": {
+      "additionalProperties": false,
+      "description": "Colours and lights. Rendering reads this; gameplay never does.",
+      "properties": {
+        "ambient": {
+          "additionalProperties": false,
+          "properties": {
+            "ground": {
+              "type": "string"
+            },
+            "intensity": {
+              "type": "number"
+            },
+            "sky": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "sky",
+            "ground",
+            "intensity"
+          ],
+          "type": "object"
+        },
+        "background": {
+          "description": "Background and fog colour.",
+          "type": "string"
+        },
+        "blockColors": {
+          "additionalProperties": false,
+          "description": "Colour per block kind. Kinds left out use a natural default (green leaves, grey rock…). For trees, pines and treelines this is the colour of the leaves; trunks are always bark brown.",
+          "properties": {
+            "bush": {
+              "type": "string"
+            },
+            "crate": {
+              "type": "string"
+            },
+            "log": {
+              "type": "string"
+            },
+            "pillar": {
+              "type": "string"
+            },
+            "pine": {
+              "type": "string"
+            },
+            "rock": {
+              "type": "string"
+            },
+            "stump": {
+              "type": "string"
+            },
+            "tree": {
+              "type": "string"
+            },
+            "treeline": {
+              "type": "string"
+            },
+            "wall": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "floorAccent": {
+          "description": "A second floor colour blended in soft patches (grass and bare earth, moss…). Omit for an even floor.",
+          "type": "string"
+        },
+        "floorColor": {
+          "type": "string"
+        },
+        "fog": {
+          "additionalProperties": false,
+          "properties": {
+            "far": {
+              "type": "number"
+            },
+            "near": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "near",
+            "far"
+          ],
+          "type": "object"
+        },
+        "sun": {
+          "additionalProperties": false,
+          "properties": {
+            "color": {
+              "type": "string"
+            },
+            "intensity": {
+              "type": "number"
+            },
+            "position": {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            }
+          },
+          "required": [
+            "color",
+            "intensity",
+            "position"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "background",
+        "fog",
+        "floorColor",
+        "blockColors",
+        "ambient",
+        "sun"
+      ],
+      "type": "object"
+    },
+    "MessageContent": {
+      "additionalProperties": false,
+      "description": "Title and body text for a message panel.",
+      "properties": {
+        "message": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "message"
+      ],
+      "type": "object"
+    },
+    "ObjectiveCondition": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "pickupCollected",
+              "type": "string"
+            },
+            "pickupId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "pickupId"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "interactableId": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "inspected",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "interactableId"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "puzzleSolved",
+              "type": "string"
+            },
+            "puzzleId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "puzzleId"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "doorId": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "doorOpened",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "doorId"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "levelCompleted",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "any",
+              "type": "string"
+            },
+            "of": {
+              "items": {
+                "$ref": "#/definitions/ObjectiveCondition"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "of"
+          ],
+          "type": "object"
+        }
+      ],
+      "description": "A fact about progress that an objective waits for."
+    },
+    "ObjectiveDefinition": {
+      "additionalProperties": false,
+      "properties": {
+        "completeWhen": {
+          "$ref": "#/definitions/ObjectiveCondition"
+        },
+        "id": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "text",
+        "completeWhen"
+      ],
+      "type": "object"
+    },
+    "PickupInteractable": {
+      "additionalProperties": false,
+      "description": "An item lying in the world that goes into the inventory when used.",
+      "properties": {
+        "collider": {
+          "$ref": "#/definitions/Vec2",
+          "description": "Footprint size if the object is solid; omit for objects the player can walk over."
+        },
+        "facing": {
+          "description": "Visual rotation around the y axis, in radians.",
+          "type": "number"
+        },
+        "id": {
+          "type": "string"
+        },
+        "item": {
+          "$ref": "#/definitions/ItemDefinition"
+        },
+        "kind": {
+          "const": "pickup",
+          "type": "string"
+        },
+        "position": {
+          "$ref": "#/definitions/Vec2"
+        },
+        "prompt": {
+          "description": "Short verb shown on the USE button while this is in reach (in capitals), e.g. \"Read\". Keep it to one or two short words.",
+          "type": "string"
+        },
+        "reach": {
+          "description": "How close (center to center) the player must be to use it.",
+          "type": "number"
+        }
+      },
+      "required": [
+        "facing",
+        "id",
+        "item",
+        "kind",
+        "position",
+        "prompt",
+        "reach"
+      ],
+      "type": "object"
+    },
+    "PuzzleDefinition": {
+      "additionalProperties": false,
+      "description": "A multiple-choice question; multiple choice is far easier than typing on a phone.",
+      "properties": {
+        "correctOptionIndex": {
+          "type": "number"
+        },
+        "id": {
+          "type": "string"
+        },
+        "options": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "question": {
+          "type": "string"
+        },
+        "solvedNotice": {
+          "description": "Pop-up shown when solved.",
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "wrongAnswerHint": {
+          "description": "Shown after a wrong answer.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "question",
+        "options",
+        "correctOptionIndex",
+        "wrongAnswerHint",
+        "solvedNotice"
+      ],
+      "type": "object"
+    },
+    "PuzzleInteractable": {
+      "additionalProperties": false,
+      "description": "A mechanism that asks the player a question.",
+      "properties": {
+        "collider": {
+          "$ref": "#/definitions/Vec2",
+          "description": "Footprint size if the object is solid; omit for objects the player can walk over."
+        },
+        "facing": {
+          "description": "Visual rotation around the y axis, in radians.",
+          "type": "number"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "puzzle",
+          "type": "string"
+        },
+        "position": {
+          "$ref": "#/definitions/Vec2"
+        },
+        "prompt": {
+          "description": "Short verb shown on the USE button while this is in reach (in capitals), e.g. \"Read\". Keep it to one or two short words.",
+          "type": "string"
+        },
+        "puzzleId": {
+          "type": "string"
+        },
+        "reach": {
+          "description": "How close (center to center) the player must be to use it.",
+          "type": "number"
+        },
+        "solvedMessage": {
+          "$ref": "#/definitions/MessageContent",
+          "description": "Shown when used again after the puzzle is solved."
+        }
+      },
+      "required": [
+        "facing",
+        "id",
+        "kind",
+        "position",
+        "prompt",
+        "puzzleId",
+        "reach",
+        "solvedMessage"
+      ],
+      "type": "object"
+    },
+    "SpawnPointDefinition": {
+      "additionalProperties": false,
+      "description": "A named place the player can (re)appear: the start, a checkpoint…",
+      "properties": {
+        "facing": {
+          "type": "number"
+        },
+        "id": {
+          "type": "string"
+        },
+        "position": {
+          "$ref": "#/definitions/Vec2"
+        }
+      },
+      "required": [
+        "facing",
+        "id",
+        "position"
+      ],
+      "type": "object"
+    },
+    "TrapTiming": {
+      "additionalProperties": false,
+      "description": "Seconds spent in each phase of the cycle.",
+      "properties": {
+        "armed": {
+          "type": "number"
+        },
+        "hidden": {
+          "type": "number"
+        },
+        "retracting": {
+          "type": "number"
+        },
+        "rising": {
+          "type": "number"
+        },
+        "warning": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "hidden",
+        "warning",
+        "rising",
+        "armed",
+        "retracting"
+      ],
+      "type": "object"
+    },
+    "TrapTrigger": {
+      "additionalProperties": false,
+      "properties": {
+        "center": {
+          "$ref": "#/definitions/Vec2",
+          "description": "Center of the rectangle on the floor plane."
+        },
+        "hitMessage": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "trap",
+          "type": "string"
+        },
+        "respawnPointId": {
+          "description": "Id of the spawn point a hit sends the player to.",
+          "type": "string"
+        },
+        "size": {
+          "$ref": "#/definitions/Vec2",
+          "description": "Full width (x) and depth (z)."
+        },
+        "startOffset": {
+          "description": "Seconds into the cycle at stage start, to stagger several traps.",
+          "type": "number"
+        },
+        "timing": {
+          "$ref": "#/definitions/TrapTiming"
+        }
+      },
+      "required": [
+        "center",
+        "hitMessage",
+        "id",
+        "kind",
+        "respawnPointId",
+        "size",
+        "timing"
+      ],
+      "type": "object"
+    },
+    "TriggerZone": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/TrapTrigger"
+        },
+        {
+          "$ref": "#/definitions/ExitTrigger"
+        }
+      ]
+    },
+    "Vec2": {
+      "additionalProperties": false,
+      "description": "A point or direction on the floor plane.",
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "z": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "z"
+      ],
+      "type": "object"
+    }
+  }
+}

@@ -47,7 +47,8 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "levels:schema": "npx --yes ts-json-schema-generator@2.9.0 --path src/types/game.ts --type LevelDefinition --tsconfig tsconfig.json --no-type-check -o src/levels/level.schema.json"
   },
   "private": true
 }

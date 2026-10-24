@@ -3,5 +3,13 @@
     "source.fixAll": "explicit",
     "source.organizeImports": "explicit",
     "source.sortMembers": "explicit"
-  }
+  },
+  // Autocomplete and checks for level files. Regenerate the schema after changing
+  // LevelDefinition (src/types/game.ts): npm run levels:schema
+  "json.schemas": [
+    {
+      "fileMatch": ["/src/levels/*.json", "!/src/levels/level.schema.json"],
+      "url": "./src/levels/level.schema.json"
+    }
+  ]
 }
