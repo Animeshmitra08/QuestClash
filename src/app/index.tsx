@@ -1,10 +1,12 @@
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { useCallback, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Animated, { FadeIn, FadeInDown, FadeInLeft, FadeInRight, useReducedMotion } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { GameButton } from "@/components/ui/GameButton";
+import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { Eyebrow, Panel } from "@/components/ui/Panel";
 import { SceneryBackground } from "@/components/ui/SceneryBackground";
 import { COLORS, GOLD_GRADIENT, RADIUS } from "@/components/ui/theme";
@@ -29,6 +31,18 @@ function play(levelId: string) {
 export default function StartScreen() {
   const insets = useSafeAreaInsets();
   const animate = !useReducedMotion();
+  const [openingOnline, setOpeningOnline] = useState(false);
+
+  // Back on this screen (e.g. after leaving online play): take the overlay down.
+  useFocusEffect(useCallback(() => setOpeningOnline(false), []));
+
+  const openOnline = () => {
+    if (openingOnline) return;
+    setOpeningOnline(true);
+    // Wait two frames so the overlay is on screen before the online screen is built,
+    // which keeps JavaScript busy for a moment.
+    requestAnimationFrame(() => requestAnimationFrame(() => router.push("/online")));
+  };
 
   return (
     <View style={styles.screen}>
@@ -74,7 +88,14 @@ export default function StartScreen() {
 
           <Animated.View entering={FadeInDown.delay(360).duration(600)} style={styles.actions}>
             <GameButton label="Start Adventure" icon="▶" size="lg" shimmer onPress={() => play(FIRST_LEVEL_ID)} />
-            <GameButton label="Play Online" icon="⚔" size="lg" variant="secondary" onPress={() => router.push("/online")} />
+            <GameButton
+              label="Play Online"
+              icon="⚔"
+              size="lg"
+              variant="secondary"
+              onPress={openOnline}
+              loading={openingOnline}
+            />
           </Animated.View>
 
           <Animated.View entering={FadeIn.delay(600).duration(600)} style={styles.tips}>
@@ -104,6 +125,8 @@ export default function StartScreen() {
           <Text style={styles.levelsFooter}>★ Faster runs with fewer mistakes earn more stars.</Text>
         </Panel>
       </View>
+
+      {openingOnline && <LoadingOverlay label="Opening online play…" />}
     </View>
   );
 }

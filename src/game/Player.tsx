@@ -18,12 +18,7 @@ const IDLE_BREATH_SPEED = 2.2;
 const IDLE_BREATH_AMOUNT = 0.02;
 const INTERACT_PULSE_SECONDS = 0.35;
 
-/** Body colour per player slot (0–4). Slot 0 keeps the original blue. */
-const SLOT_COLORS = ["#2f6fb3", "#c0392b", "#2e9e5b", "#8e44ad", "#d9822b"] as const;
-
-export function playerColor(slot: number): string {
-  return SLOT_COLORS[slot % SLOT_COLORS.length];
-}
+export { playerColor } from "./playerColors";
 
 interface PlayerProps {
   /** Read every frame; never copied into React state. */

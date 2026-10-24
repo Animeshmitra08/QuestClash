@@ -1,19 +1,19 @@
 import { router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { type ReactNode, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { lazy, type ReactNode, Suspense, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from "react-native";
 import Animated, { FadeIn, FadeInLeft, FadeInRight, LinearTransition, useReducedMotion } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { LevelSession } from "@/components/LevelSession";
 import { OnlineResults } from "@/components/OnlineResults";
 import { GameButton } from "@/components/ui/GameButton";
+import { LoadingOverlay } from "@/components/ui/LoadingOverlay";
 import { NoticeDialog } from "@/components/ui/NoticeDialog";
 import { Eyebrow, InfoNote, Panel } from "@/components/ui/Panel";
 import { SceneryBackground } from "@/components/ui/SceneryBackground";
 import { COLORS, RADIUS } from "@/components/ui/theme";
 import { usePressScale } from "@/components/ui/usePressScale";
-import { playerColor } from "@/game/Player";
+import { playerColor } from "@/game/playerColors";
 import { LEVEL_CATALOG } from "@/levels/catalog";
 import { GAME_SERVER_URL } from "@/net/config";
 import { type LobbyPlayer, OnlineSession, REJOIN_MID_MATCH, type SessionView } from "@/net/OnlineSession";
@@ -21,6 +21,16 @@ import { MAX_NAME_LENGTH, MAX_ROOM_PLAYERS, NET_ERRORS, type NetErrorCode, ROOM_
 
 /** After this long "connecting", explain that a sleeping server can take a while to wake. */
 const SLOW_CONNECT_MS = 5000;
+
+/**
+ * The 3D game (three.js, React Three Fiber) is only needed once a match starts, so it
+ * isn't loaded with this screen: that kept opening online play slow. The lobby starts
+ * loading it in the background (see Lobby), so the match itself still starts promptly.
+ */
+const loadLevelSession = () => import("@/components/LevelSession");
+const LevelSession = lazy(() => loadLevelSession().then((module) => ({ default: module.LevelSession })));
+/** Give the lobby a moment to appear before loading the game in the background. */
+const PRELOAD_DELAY_MS = 800;
 
 // No springs, zooms or scaling on this screen: things fade, nothing bounces.
 const PULSE = { from: { opacity: 0.35 }, to: { opacity: 1 } };
@@ -44,34 +54,36 @@ export default function OnlineScreen() {
     const nextLevelId = match.level.nextLevelId;
     const exitLabel = view.isHost ? "Close room" : "Leave room";
     return (
-      <LevelSession
-        key={match.matchNumber}
-        source={match}
-        onRestart={view.isHost ? () => session.restart() : undefined}
-        onQuit={leaveRoom}
-        exitLabel={exitLabel}
-        connectionNotice={view.status === "reconnecting" ? "Connection lost. Reconnecting…" : null}
-        renderResults={(state) => (
-          <OnlineResults
-            level={match.level}
-            state={state}
-            localPlayerId={match.localPlayerId}
-            roomPlayers={view.players}
-            roomCode={view.code}
-            reconnecting={view.status === "reconnecting"}
-            onNextLevel={view.isHost && nextLevelId && state.status === "completed" ? () => session.nextLevel() : undefined}
-            onRestart={view.isHost ? () => session.restart() : undefined}
-            onBackToLobby={view.isHost ? () => session.backToLobby() : undefined}
-            onExit={leaveRoom}
-            exitLabel={exitLabel}
-            note={
-              view.isHost
-                ? "Closing the room sends everyone home."
-                : "Waiting for the host to choose what's next… You can leave and rejoin with the code."
-            }
-          />
-        )}
-      />
+      <Suspense fallback={<MatchLoading />}>
+        <LevelSession
+          key={match.matchNumber}
+          source={match}
+          onRestart={view.isHost ? () => session.restart() : undefined}
+          onQuit={leaveRoom}
+          exitLabel={exitLabel}
+          connectionNotice={view.status === "reconnecting" ? "Connection lost. Reconnecting…" : null}
+          renderResults={(state) => (
+            <OnlineResults
+              level={match.level}
+              state={state}
+              localPlayerId={match.localPlayerId}
+              roomPlayers={view.players}
+              roomCode={view.code}
+              reconnecting={view.status === "reconnecting"}
+              onNextLevel={view.isHost && nextLevelId && state.status === "completed" ? () => session.nextLevel() : undefined}
+              onRestart={view.isHost ? () => session.restart() : undefined}
+              onBackToLobby={view.isHost ? () => session.backToLobby() : undefined}
+              onExit={leaveRoom}
+              exitLabel={exitLabel}
+              note={
+                view.isHost
+                  ? "Closing the room sends everyone home."
+                  : "Waiting for the host to choose what's next… You can leave and rejoin with the code."
+              }
+            />
+          )}
+        />
+      </Suspense>
     );
   }
 
@@ -83,6 +95,17 @@ export default function OnlineScreen() {
       <SceneryBackground variant="night" />
       {inRoom ? <Lobby session={session} view={view} onLeave={leaveRoom} /> : <JoinForm session={session} view={view} />}
       {view.error && <NoticeDialog {...describeError(view.error)} onClose={() => session.clearError()} />}
+    </View>
+  );
+}
+
+/** Shown if a match starts before the game has finished loading in the background. */
+function MatchLoading() {
+  return (
+    <View style={styles.screen}>
+      <StatusBar hidden />
+      <SceneryBackground variant="night" />
+      <LoadingOverlay label="Loading the match…" />
     </View>
   );
 }
@@ -334,6 +357,12 @@ function Lobby({ session, view, onLeave }: { session: OnlineSession; view: Sessi
   const readyShare = connectedCount === 0 ? 0 : readyCount / connectedCount;
   const reconnecting = view.status === "reconnecting";
   const afterMatch = view.phase === "finished";
+
+  // Load the 3D game while everyone gets ready, so it's there when the match starts.
+  useEffect(() => {
+    const timer = setTimeout(() => void loadLevelSession(), PRELOAD_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, []);
 
   const shareCode = () => {
     void Share.share({ message: `Join my QuestClash room! Code: ${code}` }).catch(() => {});

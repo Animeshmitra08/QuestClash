@@ -4,7 +4,7 @@
     "slug": "QuestClash",
     "version": "1.0.0",
     "orientation": "landscape",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/QuestClash.png",
     "scheme": "questclash",
     "userInterfaceStyle": "automatic",
     "ios": {
@@ -15,9 +15,9 @@
       "package": "com.aondigicon.questclash",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "foregroundImage": "./assets/images/background&foreground.png",
+        "backgroundImage": "./assets/images/background&foreground.png",
+        "monochromeImage": "./assets/images/Monochrome.png"
       },
       "predictiveBackGestureEnabled": false
     },
@@ -30,9 +30,14 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
+          "backgroundColor": "#120d1f",
+          "image": "./assets/images/QuestClash.png",
+          "imageWidth": 140,
+          "resizeMode": "contain",
+          "dark": {
+            "backgroundColor": "#120d1f",
+            "image": "./assets/images/QuestClash.png"
+          }
         }
       ],
       "expo-asset",
@@ -49,8 +54,11 @@
     },
     "extra": {
       "router": {},
+      "expo-navigation-bar": {
+        "hidden": true
+      },
       "eas": {
-        "projectId": "3c7617e1-07be-43d3-be60-3a23771e1eb4"
+        "projectId": "3bb92c17-f97b-4cb9-b3fc-99436f00fc91"
       }
     }
   }

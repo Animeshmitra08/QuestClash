@@ -6,7 +6,7 @@ import { Confetti } from "@/components/ui/Confetti";
 import { GameButton } from "@/components/ui/GameButton";
 import { Eyebrow, Panel } from "@/components/ui/Panel";
 import { COLORS, GOLD_GRADIENT, RADIUS } from "@/components/ui/theme";
-import { playerColor } from "@/game/Player";
+import { playerColor } from "@/game/playerColors";
 import type { LobbyPlayer } from "@/net/OnlineSession";
 import { type LeaderboardEntry, rankPlayers } from "@/systems/leaderboard";
 import { calculateScore, formatTime, resolveScoring } from "@/systems/ScoreSystem";
